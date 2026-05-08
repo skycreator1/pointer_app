@@ -3,6 +3,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:pointer_app/app_router.dart';
 import 'package:pointer_app/core/services/background_service.dart';
 import 'package:pointer_app/core/services/notification_service.dart';
+import 'package:pointer_app/core/theme/app_theme.dart';
 import 'package:pointer_app/core/models/invite_code.dart';
 import 'package:pointer_app/core/models/paired_device.dart';
 import 'package:pointer_app/core/models/saved_location.dart';
@@ -27,6 +28,9 @@ class PointerApp extends StatelessWidget {
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,
       routerConfig: appRouter,
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: ThemeMode.system,
     );
   }
 }

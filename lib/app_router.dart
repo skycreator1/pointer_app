@@ -5,6 +5,7 @@ import 'package:hive/hive.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:pointer_app/core/models/paired_device.dart';
 import 'package:pointer_app/core/services/permission_service.dart';
+import 'package:pointer_app/core/theme/app_theme.dart';
 import 'package:pointer_app/features/offline_pointer/view/location_picker_page.dart';
 
 final GoRouter appRouter = GoRouter(
@@ -13,7 +14,10 @@ final GoRouter appRouter = GoRouter(
     GoRoute(path: '/', builder: (context, state) => const _StartupPage()),
     ShellRoute(
       builder: (context, state, child) {
-        return _CompassShell(location: state.uri.toString(), child: child);
+        return Theme(
+          data: AppTheme.darkTheme,
+          child: _CompassShell(location: state.uri.toString(), child: child),
+        );
       },
       routes: [
         GoRoute(
