@@ -106,4 +106,31 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get deleteConnection => '移除配对';
+
+  @override
+  String get retry => '重试';
+
+  @override
+  String get gpsUnavailable => 'GPS 不可用或精度不足';
+
+  @override
+  String get compassUnavailable => '设备不支持罗盘功能';
+
+  @override
+  String get inviteCodeExpired => '邀请码已过期';
+
+  @override
+  String get inviteCodeInvalid => '邀请码无效';
+
+  @override
+  String get connectionTimeout => '连接超时，请重试';
+
+  @override
+  String get peerRejected => '对方拒绝连接';
+
+  @override
+  String get webSocketDisconnected => '连接已断开，请检查网络';
+
+  @override
+  String get unknownError => '发生未知错误，请稍后重试';
 }

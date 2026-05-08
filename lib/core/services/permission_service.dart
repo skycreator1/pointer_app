@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:pointer_app/core/errors/app_exceptions.dart';
 
 class PermissionService {
   final Map<Permission, StreamController<PermissionStatus>> _controllers = {};
@@ -29,6 +30,24 @@ class PermissionService {
     }
     _controllers.clear();
     _lastStatus.clear();
+  }
+
+  Future<void> require(Permission p) async {
+    var status = await p.status;
+    if (status.isGranted) return;
+
+    if (status.isPermanentlyDenied) {
+      await openAppSettings();
+      throw PermissionDeniedException(p);
+    }
+
+    status = await p.request();
+    if (status.isGranted) return;
+
+    if (status.isPermanentlyDenied) {
+      await openAppSettings();
+    }
+    throw PermissionDeniedException(p);
   }
 
   Future<bool> checkAndRequest(Permission p) async {

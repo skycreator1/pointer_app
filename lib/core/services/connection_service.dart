@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:geolocator/geolocator.dart';
 import 'package:hive/hive.dart';
+import 'package:pointer_app/core/errors/app_exceptions.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 /// Device-to-device connection state machine based on WebSocket + JSON messages.
@@ -111,6 +112,11 @@ class ConnectionService {
 
   static const _heartbeatInterval = Duration(seconds: 15);
   static const _peerTimeout = Duration(seconds: 45);
+  static const _defaultHandshakeTimeout = Duration(seconds: 30);
+
+  Completer<void>? _handshakeCompleter;
+  String? _handshakeRequestId;
+  Timer? _handshakeTimer;
 
   /// Initializes storage and triggers auto-reconnect if a persisted pairId exists.
   Future<void> init() async {
@@ -144,6 +150,40 @@ class ConnectionService {
       'inviteCode': inviteCode,
       'fromUserId': myUserId,
     });
+  }
+
+  Future<void> connectAndWait(
+    String inviteCode, {
+    Duration timeout = _defaultHandshakeTimeout,
+  }) async {
+    _clearHandshake();
+    _pendingInviteCode = inviteCode;
+    final requestId = _newRequestId();
+    _pendingRequestId = requestId;
+
+    _setState(ConnectionState.waitingApproval);
+    await _connect();
+
+    final completer = Completer<void>();
+    _handshakeCompleter = completer;
+    _handshakeRequestId = requestId;
+    _handshakeTimer = Timer(timeout, () {
+      if (!completer.isCompleted) {
+        completer.completeError(ConnectionTimeoutException(timeout: timeout));
+      }
+      _clearHandshake();
+      _setState(ConnectionState.idle);
+      unawaited(_closeSocket());
+    });
+
+    _sendJson(<String, Object?>{
+      'type': 'connect_request',
+      'requestId': requestId,
+      'inviteCode': inviteCode,
+      'fromUserId': myUserId,
+    });
+
+    await completer.future;
   }
 
   /// Approves an incoming connect request.
@@ -194,6 +234,7 @@ class ConnectionService {
   /// Cancels all timers/subscriptions and closes streams.
   Future<void> dispose() async {
     _disposed = true;
+    _clearHandshake();
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     await _closeSocket();
@@ -223,8 +264,8 @@ class ConnectionService {
         _lastReceivedAt = _now();
         _handleIncoming(event);
       },
-      onError: (_) {
-        unawaited(_handlePeerOffline());
+      onError: (Object e) {
+        unawaited(_handlePeerOffline(error: e));
       },
       onDone: () {
         unawaited(_handlePeerOffline());
@@ -297,6 +338,14 @@ class ConnectionService {
         if (_persistPairIdEnabled) {
           _persistPairId(pairId);
         }
+        final handshake = _handshakeCompleter;
+        if (handshake != null &&
+            _handshakeRequestId != null &&
+            _handshakeRequestId == requestId &&
+            !handshake.isCompleted) {
+          handshake.complete();
+          _clearHandshake();
+        }
         _setState(ConnectionState.connected);
         return;
       case 'connect_rejected':
@@ -305,6 +354,14 @@ class ConnectionService {
         if (_pendingRequestId != null && _pendingRequestId != requestId) return;
         _pendingRequestId = null;
         _pendingInviteCode = null;
+        final handshake = _handshakeCompleter;
+        if (handshake != null &&
+            _handshakeRequestId != null &&
+            _handshakeRequestId == requestId &&
+            !handshake.isCompleted) {
+          handshake.completeError(const PeerRejectedException());
+          _clearHandshake();
+        }
         _setState(ConnectionState.idle);
         return;
       case 'location_update':
@@ -321,8 +378,14 @@ class ConnectionService {
     }
   }
 
-  Future<void> _handlePeerOffline() async {
+  Future<void> _handlePeerOffline({Object? error}) async {
     if (_disposed) return;
+
+    final handshake = _handshakeCompleter;
+    if (handshake != null && !handshake.isCompleted) {
+      handshake.completeError(WebSocketException(error ?? 'websocket_closed'));
+      _clearHandshake();
+    }
 
     if (_state != ConnectionState.peerOffline) {
       _setState(ConnectionState.peerOffline);
@@ -375,6 +438,13 @@ class ConnectionService {
 
     await subscription?.cancel();
     await channel?.sink.close();
+  }
+
+  void _clearHandshake() {
+    _handshakeTimer?.cancel();
+    _handshakeTimer = null;
+    _handshakeCompleter = null;
+    _handshakeRequestId = null;
   }
 
   void _sendJson(Map<String, Object?> msg) {

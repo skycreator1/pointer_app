@@ -44,6 +44,14 @@
   "addLocation": "添加地点",
   "locationNameHint": "给这个地点起个名字",
   "saveLocation": "保存",
-  "deleteConnection": "移除配对"
+  "deleteConnection": "移除配对",
+  "retry": "重试",
+  "gpsUnavailable": "GPS 不可用或精度不足",
+  "compassUnavailable": "设备不支持罗盘功能",
+  "inviteCodeExpired": "邀请码已过期",
+  "inviteCodeInvalid": "邀请码无效",
+  "connectionTimeout": "连接超时，请重试",
+  "peerRejected": "对方拒绝连接",
+  "webSocketDisconnected": "连接已断开，请检查网络",
+  "unknownError": "发生未知错误，请稍后重试"
 }
-

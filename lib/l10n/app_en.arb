@@ -44,6 +44,14 @@
   "addLocation": "Add location",
   "locationNameHint": "Name this location",
   "saveLocation": "Save",
-  "deleteConnection": "Remove pairing"
+  "deleteConnection": "Remove pairing",
+  "retry": "Retry",
+  "gpsUnavailable": "GPS is unavailable or accuracy is insufficient",
+  "compassUnavailable": "Compass is not available on this device",
+  "inviteCodeExpired": "Invite code has expired",
+  "inviteCodeInvalid": "Invalid invite code",
+  "connectionTimeout": "Connection timed out. Please try again.",
+  "peerRejected": "Peer rejected the request",
+  "webSocketDisconnected": "Disconnected. Please check your network.",
+  "unknownError": "Something went wrong. Please try again."
 }
-

@@ -106,4 +106,31 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deleteConnection => 'Remove pairing';
+
+  @override
+  String get retry => 'Retry';
+
+  @override
+  String get gpsUnavailable => 'GPS is unavailable or accuracy is insufficient';
+
+  @override
+  String get compassUnavailable => 'Compass is not available on this device';
+
+  @override
+  String get inviteCodeExpired => 'Invite code has expired';
+
+  @override
+  String get inviteCodeInvalid => 'Invalid invite code';
+
+  @override
+  String get connectionTimeout => 'Connection timed out. Please try again.';
+
+  @override
+  String get peerRejected => 'Peer rejected the request';
+
+  @override
+  String get webSocketDisconnected => 'Disconnected. Please check your network.';
+
+  @override
+  String get unknownError => 'Something went wrong. Please try again.';
 }

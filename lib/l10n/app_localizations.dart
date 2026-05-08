@@ -280,6 +280,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Remove pairing'**
   String get deleteConnection;
+
+  /// No description provided for @retry.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get retry;
+
+  /// No description provided for @gpsUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'GPS is unavailable or accuracy is insufficient'**
+  String get gpsUnavailable;
+
+  /// No description provided for @compassUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Compass is not available on this device'**
+  String get compassUnavailable;
+
+  /// No description provided for @inviteCodeExpired.
+  ///
+  /// In en, this message translates to:
+  /// **'Invite code has expired'**
+  String get inviteCodeExpired;
+
+  /// No description provided for @inviteCodeInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid invite code'**
+  String get inviteCodeInvalid;
+
+  /// No description provided for @connectionTimeout.
+  ///
+  /// In en, this message translates to:
+  /// **'Connection timed out. Please try again.'**
+  String get connectionTimeout;
+
+  /// No description provided for @peerRejected.
+  ///
+  /// In en, this message translates to:
+  /// **'Peer rejected the request'**
+  String get peerRejected;
+
+  /// No description provided for @webSocketDisconnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Disconnected. Please check your network.'**
+  String get webSocketDisconnected;
+
+  /// No description provided for @unknownError.
+  ///
+  /// In en, this message translates to:
+  /// **'Something went wrong. Please try again.'**
+  String get unknownError;
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {
