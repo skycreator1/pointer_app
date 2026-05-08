@@ -17,19 +17,18 @@ final class CompassTheme {
   factory CompassTheme.dark() {
     return const CompassTheme(
       dialColor: AppColorsDark.surface,
-      needleColor: AppColorsDark.accent,
+      needleColor: AppColorsDark.primary,
       tickColor: AppColorsDark.textSecondary,
-      centerDotColor: AppColorsDark.primary,
+      centerDotColor: AppColorsDark.accent,
     );
   }
 
   factory CompassTheme.light() {
     return const CompassTheme(
       dialColor: AppColorsLight.surface,
-      needleColor: AppColorsLight.accent,
+      needleColor: AppColorsLight.primary,
       tickColor: AppColorsLight.textSecondary,
-      centerDotColor: AppColorsLight.primary,
+      centerDotColor: AppColorsLight.accent,
     );
   }
 }
-
