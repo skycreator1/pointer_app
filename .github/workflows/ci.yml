@@ -94,20 +94,25 @@ jobs:
             store_type="JKS"
           fi
 
-          release_sha1="$(
-            keytool -list -v -storetype "$store_type" -keystore android/app/upload-keystore.jks -alias "$ANDROID_KEY_ALIAS" -storepass "$ANDROID_KEYSTORE_PASSWORD" 2>/dev/null \
-              | awk -F': ' '/SHA1:/{print $2; exit}'
-          )"
-          if [ -z "$release_sha1" ]; then
+          set +e
+          release_output="$(keytool -list -v -storetype "$store_type" -keystore android/app/upload-keystore.jks -alias "$ANDROID_KEY_ALIAS" -storepass "$ANDROID_KEYSTORE_PASSWORD" 2>/dev/null)"
+          release_rc=$?
+          debug_output="$(keytool -list -v -alias androiddebugkey -keystore "$HOME/.android/debug.keystore" -storepass android -keypass android 2>/dev/null)"
+          debug_rc=$?
+          set -e
+
+          if [ "$release_rc" -ne 0 ]; then
             release_sha1="N/A"
+          else
+            release_sha1="$(printf '%s\n' "$release_output" | awk -F': ' '/SHA1:/{print $2; exit}')"
+            if [ -z "$release_sha1" ]; then release_sha1="N/A"; fi
           fi
 
-          debug_sha1="$(
-            keytool -list -v -alias androiddebugkey -keystore "$HOME/.android/debug.keystore" -storepass android -keypass android 2>/dev/null \
-              | awk -F': ' '/SHA1:/{print $2; exit}'
-          )"
-          if [ -z "$debug_sha1" ]; then
+          if [ "$debug_rc" -ne 0 ]; then
             debug_sha1="N/A"
+          else
+            debug_sha1="$(printf '%s\n' "$debug_output" | awk -F': ' '/SHA1:/{print $2; exit}')"
+            if [ -z "$debug_sha1" ]; then debug_sha1="N/A"; fi
           fi
 
           echo "Release SHA1: $release_sha1"
