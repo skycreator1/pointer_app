@@ -42,6 +42,25 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [ -z "$sdk_root" ]; then
+            echo "ANDROID_SDK_ROOT/ANDROID_HOME is not set"
+            exit 1
+          fi
+          sdkmanager="$sdk_root/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$sdkmanager" ]; then
+            sdkmanager="$sdk_root/cmdline-tools/bin/sdkmanager"
+          fi
+          if [ ! -x "$sdkmanager" ]; then
+            echo "sdkmanager not found under $sdk_root/cmdline-tools"
+            exit 1
+          fi
+
+          yes | "$sdkmanager" --licenses >/dev/null
+          "$sdkmanager" "platforms;android-35" "build-tools;35.0.0"
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
