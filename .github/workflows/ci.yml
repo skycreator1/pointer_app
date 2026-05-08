@@ -59,7 +59,11 @@ jobs:
             exit 1
           fi
 
-          yes | "$sdkmanager" --licenses >/dev/null
+          set +e
+          set +o pipefail
+          yes | "$sdkmanager" --licenses >/dev/null 2>&1
+          set -o pipefail
+          set -e
           "$sdkmanager" "platforms;android-35" "build-tools;35.0.0"
       - uses: subosito/flutter-action@v2
         with:
