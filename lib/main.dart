@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:pointer_app/app_router.dart';
@@ -14,11 +16,20 @@ Future<void> main() async {
   await Hive.initFlutter();
   _registerHiveAdapters();
 
-  await initBackgroundService();
-  final notificationService = NotificationService();
-  await notificationService.init();
-
   runApp(const PointerApp());
+
+  unawaited(_startServices());
+}
+
+Future<void> _startServices() async {
+  try {
+    await initBackgroundService();
+  } catch (_) {}
+
+  try {
+    final notificationService = NotificationService();
+    await notificationService.init();
+  } catch (_) {}
 }
 
 class PointerApp extends StatelessWidget {

@@ -23,12 +23,18 @@ class NotificationService {
   final ConnectionService? _connectionService;
   final FlutterLocalNotificationsPlugin _plugin;
   bool _initialized = false;
+  bool _disabled = false;
 
   Future<void> init() async {
     if (_initialized) return;
-    _initialized = true;
+    if (_disabled) {
+      _initialized = true;
+      return;
+    }
 
-    const androidSettings = AndroidInitializationSettings('ic_pointer');
+    const androidSettings = AndroidInitializationSettings(
+      'ic_bg_service_small',
+    );
     final iosSettings = DarwinInitializationSettings(
       requestAlertPermission: false,
       requestBadgePermission: false,
@@ -62,18 +68,9 @@ class NotificationService {
       );
     } on PlatformException catch (e) {
       if (e.code != 'invalid_icon') rethrow;
-      const fallbackAndroidSettings = AndroidInitializationSettings(
-        'ic_launcher',
-      );
-      await _plugin.initialize(
-        settings: InitializationSettings(
-          android: fallbackAndroidSettings,
-          iOS: iosSettings,
-        ),
-        onDidReceiveNotificationResponse: (response) {
-          unawaited(_handleResponse(response));
-        },
-      );
+      _disabled = true;
+      _initialized = true;
+      return;
     }
 
     final androidImpl = _plugin
@@ -105,6 +102,8 @@ class NotificationService {
     if (response != null) {
       await _handleResponse(response);
     }
+
+    _initialized = true;
   }
 
   Future<void> showConnectRequest({
@@ -112,6 +111,7 @@ class NotificationService {
     required String deviceNickname,
   }) async {
     await init();
+    if (_disabled) return;
 
     final payload = jsonEncode(<String, Object?>{
       'requestId': requestId,
@@ -161,6 +161,7 @@ class NotificationService {
 
   Future<void> showPeerOnline(String nickname) async {
     await init();
+    if (_disabled) return;
 
     final androidDetails = AndroidNotificationDetails(
       _androidChannelId,
