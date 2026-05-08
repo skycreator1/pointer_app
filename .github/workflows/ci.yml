@@ -40,17 +40,21 @@ jobs:
       - name: Prepare Android signing
         shell: bash
         run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
+          printf '%s' "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | tr -d '\n\r' | base64 --decode > android/app/upload-keystore.jks
           {
             echo "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}"
             echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}"
             echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}"
+            echo "storeType=JKS"
             echo "storeFile=../app/upload-keystore.jks"
           } > android/key.properties
+      - name: Verify keystore
+        shell: bash
+        run: |
+          keytool -list -keystore android/app/upload-keystore.jks -alias "${{ secrets.ANDROID_KEY_ALIAS }}" -storepass "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}"
       - run: flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
           name: app-release-apk-${{ github.sha }}
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 14
-

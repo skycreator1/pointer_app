@@ -54,6 +54,7 @@ android {
                 initWith(getByName("debug"))
             } else {
                 storeFile = file(storeFilePath)
+                storeType = keystoreProperties.getProperty("storeType") ?: "JKS"
                 storePassword = keystoreProperties.getProperty("storePassword")
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
