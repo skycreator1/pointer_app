@@ -127,7 +127,7 @@ jobs:
             echo "- 发布版（Release）SHA1: $release_sha1"
             echo "- 测试版（Debug）SHA1: $debug_sha1"
           } >> "$GITHUB_STEP_SUMMARY"
-      - run: flutter build apk --release
+      - run: flutter build apk --release -v
       - name: Rename APK for release
         shell: bash
         run: |
