@@ -7,7 +7,12 @@ on:
   push:
     branches:
       - main
+    tags:
+      - v*
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   checks:
@@ -23,7 +28,7 @@ jobs:
       - run: flutter test
 
   build-android:
-    if: github.event_name != 'pull_request'
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: checks
     runs-on: ubuntu-latest
     steps:
@@ -74,8 +79,17 @@ jobs:
         run: |
           keytool -list -keystore android/app/upload-keystore.jks -alias "$ANDROID_KEY_ALIAS" -storepass "$ANDROID_KEYSTORE_PASSWORD"
       - run: flutter build apk --release
+      - name: Rename APK for release
+        shell: bash
+        run: |
+          cp build/app/outputs/flutter-apk/app-release.apk "app-release-${{ github.ref_name }}.apk"
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app-release-${{ github.ref_name }}.apk
+          generate_release_notes: true
       - uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk-${{ github.sha }}
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: app-release-apk-${{ github.ref_name }}
+          path: app-release-${{ github.ref_name }}.apk
           retention-days: 14
