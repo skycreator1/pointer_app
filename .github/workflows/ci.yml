@@ -25,7 +25,12 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: flutter analyze
-      - run: flutter test
+      - run: flutter test --coverage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ github.sha }}
+          path: coverage/lcov.info
+          retention-days: 14
 
   build-android:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -78,6 +83,30 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           keytool -list -keystore android/app/upload-keystore.jks -alias "$ANDROID_KEY_ALIAS" -storepass "$ANDROID_KEYSTORE_PASSWORD"
+      - name: Output SHA1 fingerprints
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          release_sha1="$(
+            keytool -list -v -keystore android/app/upload-keystore.jks -alias "$ANDROID_KEY_ALIAS" -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+              | awk -F': ' '/SHA1:/{print $2; exit}'
+          )"
+          debug_sha1="$(
+            keytool -list -v -alias androiddebugkey -keystore "$HOME/.android/debug.keystore" -storepass android -keypass android \
+              | awk -F': ' '/SHA1:/{print $2; exit}'
+          )"
+
+          echo "Release SHA1: $release_sha1"
+          echo "Debug SHA1:   $debug_sha1"
+
+          {
+            echo "## Android SHA1"
+            echo ""
+            echo "- 发布版（Release）SHA1: $release_sha1"
+            echo "- 测试版（Debug）SHA1: $debug_sha1"
+          } >> "$GITHUB_STEP_SUMMARY"
       - run: flutter build apk --release
       - name: Rename APK for release
         shell: bash

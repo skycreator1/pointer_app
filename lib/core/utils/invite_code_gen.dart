@@ -4,12 +4,13 @@ import 'package:pointer_app/core/models/invite_code.dart';
 
 typedef RefreshMode = InviteCodeRefreshMode;
 
-String generateCode(String userId, RefreshMode mode) {
-  final now = DateTime.now();
+String generateCode(String userId, RefreshMode mode, {DateTime Function()? now}) {
+  final resolvedNow = now ?? DateTime.now;
+  final nowValue = resolvedNow();
 
   final input = switch (mode) {
-    RefreshMode.daily => '$userId${_yyyyMMdd(now)}',
-    RefreshMode.onDemand => '$userId${now.millisecondsSinceEpoch}',
+    RefreshMode.daily => '$userId${_yyyyMMdd(nowValue)}',
+    RefreshMode.onDemand => '$userId${nowValue.millisecondsSinceEpoch}',
   };
 
   final digestHexUpper = _sha256HexUpper(input);

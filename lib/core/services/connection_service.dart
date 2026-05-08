@@ -368,10 +368,10 @@ class ConnectionService {
 
     final subscription = _channelSubscription;
     _channelSubscription = null;
-    await subscription?.cancel();
-
     final channel = _channel;
     _channel = null;
+
+    await subscription?.cancel();
     await channel?.sink.close();
   }
 

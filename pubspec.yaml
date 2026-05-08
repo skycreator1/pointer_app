@@ -43,14 +43,21 @@ dependencies:
   permission_handler: any
   web_socket_channel: any
   home_widget: any
+  flutter_local_notifications: any
   flutter_background_service: any
   flutter_map: any
+  go_router: any
+  geocoding: any
+  flutter_map_tile_caching: any
+  latlong2: any
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   build_runner: any
   hive_generator: any
+  mocktail: any
+  fake_async: any
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
