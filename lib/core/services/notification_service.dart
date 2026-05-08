@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:pointer_app/core/services/connection_service.dart';
 
@@ -27,9 +28,7 @@ class NotificationService {
     if (_initialized) return;
     _initialized = true;
 
-    const androidSettings = AndroidInitializationSettings(
-      '@drawable/ic_pointer',
-    );
+    const androidSettings = AndroidInitializationSettings('ic_pointer');
     final iosSettings = DarwinInitializationSettings(
       requestAlertPermission: false,
       requestBadgePermission: false,
@@ -51,15 +50,31 @@ class NotificationService {
       ],
     );
 
-    await _plugin.initialize(
-      settings: InitializationSettings(
-        android: androidSettings,
-        iOS: iosSettings,
-      ),
-      onDidReceiveNotificationResponse: (response) {
-        unawaited(_handleResponse(response));
-      },
-    );
+    try {
+      await _plugin.initialize(
+        settings: InitializationSettings(
+          android: androidSettings,
+          iOS: iosSettings,
+        ),
+        onDidReceiveNotificationResponse: (response) {
+          unawaited(_handleResponse(response));
+        },
+      );
+    } on PlatformException catch (e) {
+      if (e.code != 'invalid_icon') rethrow;
+      const fallbackAndroidSettings = AndroidInitializationSettings(
+        'ic_launcher',
+      );
+      await _plugin.initialize(
+        settings: InitializationSettings(
+          android: fallbackAndroidSettings,
+          iOS: iosSettings,
+        ),
+        onDidReceiveNotificationResponse: (response) {
+          unawaited(_handleResponse(response));
+        },
+      );
+    }
 
     final androidImpl = _plugin
         .resolvePlatformSpecificImplementation<
