@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 
@@ -52,7 +51,9 @@ class _ConnectRequestDialogState extends State<_ConnectRequestDialog> {
       if (_remaining <= 0) {
         _timer?.cancel();
         _timer = null;
-        Navigator.of(context).pop((result: ConnectResult.timeout, nickname: null));
+        Navigator.of(
+          context,
+        ).pop((result: ConnectResult.timeout, nickname: null));
       }
     });
   }
@@ -89,10 +90,7 @@ class _ConnectRequestDialogState extends State<_ConnectRequestDialog> {
             const SizedBox(height: 8),
             const Text(
               '请求与你连接',
-              style: TextStyle(
-                fontSize: 14,
-                color: Color(0xB3FFFFFF),
-              ),
+              style: TextStyle(fontSize: 14, color: Color(0xB3FFFFFF)),
             ),
             const SizedBox(height: 16),
             ClipRRect(
@@ -107,10 +105,7 @@ class _ConnectRequestDialogState extends State<_ConnectRequestDialog> {
             const SizedBox(height: 8),
             Text(
               '$_remaining s',
-              style: const TextStyle(
-                fontSize: 12,
-                color: Color(0xB3FFFFFF),
-              ),
+              style: const TextStyle(fontSize: 12, color: Color(0xB3FFFFFF)),
             ),
             const SizedBox(height: 16),
             Row(
@@ -126,7 +121,9 @@ class _ConnectRequestDialogState extends State<_ConnectRequestDialog> {
                       ),
                     ),
                     onPressed: () {
-                      Navigator.of(context).pop((result: ConnectResult.reject, nickname: null));
+                      Navigator.of(
+                        context,
+                      ).pop((result: ConnectResult.reject, nickname: null));
                     },
                     child: const Text('拒绝'),
                   ),
@@ -146,7 +143,10 @@ class _ConnectRequestDialogState extends State<_ConnectRequestDialog> {
                       final navigator = Navigator.of(context);
                       final nickname = await _askPeerNickname(context);
                       if (!context.mounted) return;
-                      navigator.pop((result: ConnectResult.approve, nickname: nickname));
+                      navigator.pop((
+                        result: ConnectResult.approve,
+                        nickname: nickname,
+                      ));
                     },
                     child: const Text('同意'),
                   ),
@@ -160,7 +160,12 @@ class _ConnectRequestDialogState extends State<_ConnectRequestDialog> {
   }
 
   Future<String?> _askPeerNickname(BuildContext context) async {
-    final defaultNickname = Platform.isAndroid ? 'Android 设备' : 'iOS 设备';
+    final platform = Theme.of(context).platform;
+    final defaultNickname = platform == TargetPlatform.android
+        ? 'Android 设备'
+        : platform == TargetPlatform.iOS
+        ? 'iOS 设备'
+        : '设备';
     final controller = TextEditingController();
 
     final result = await showDialog<String?>(
@@ -172,9 +177,7 @@ class _ConnectRequestDialogState extends State<_ConnectRequestDialog> {
           content: TextField(
             controller: controller,
             autofocus: true,
-            decoration: InputDecoration(
-              hintText: defaultNickname,
-            ),
+            decoration: InputDecoration(hintText: defaultNickname),
           ),
           actions: [
             TextButton(
@@ -184,7 +187,9 @@ class _ConnectRequestDialogState extends State<_ConnectRequestDialog> {
             TextButton(
               onPressed: () {
                 final text = controller.text.trim();
-                Navigator.of(context).pop(text.isEmpty ? defaultNickname : text);
+                Navigator.of(
+                  context,
+                ).pop(text.isEmpty ? defaultNickname : text);
               },
               child: const Text('确定'),
             ),

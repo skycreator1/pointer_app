@@ -6,6 +6,8 @@ import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:home_widget/home_widget.dart';
+import 'package:pointer_app/core/models/invite_code.dart';
+import 'package:pointer_app/core/models/paired_device.dart';
 import 'package:pointer_app/core/models/saved_location.dart';
 import 'package:pointer_app/core/services/connection_service.dart';
 import 'package:pointer_app/core/services/location_calc_service.dart';
@@ -52,6 +54,7 @@ Future<void> initBackgroundService() async {
 void onStart(ServiceInstance service) async {
   ui.DartPluginRegistrant.ensureInitialized();
   await Hive.initFlutter();
+  _registerHiveAdapters();
 
   if (service is AndroidServiceInstance) {
     await service.setForegroundNotificationInfo(
@@ -83,6 +86,9 @@ void onStart(ServiceInstance service) async {
     await calcSub?.cancel();
     calcSub = null;
 
+    calcService?.dispose();
+    calcService = null;
+
     await stopSub?.cancel();
     await configureSub?.cancel();
     await setTargetSub?.cancel();
@@ -101,23 +107,25 @@ void onStart(ServiceInstance service) async {
     final target = targetSubject.valueOrNull;
     if (config == null || target == null) return;
 
-    connectionService ??= ConnectionService(
+    final cs = connectionService ??= ConnectionService(
       serverUri: config.serverUri,
       myUserId: config.myUserId,
     );
     if (!connectionInitialized) {
       connectionInitialized = true;
-      connectionService!.init();
+      unawaited(cs.init());
     }
 
-    if (calcService == null) {
-      calcService = LocationCalcService(
+    final existingCalc = calcService;
+    if (existingCalc == null) {
+      final createdCalc = LocationCalcService(
         target: target,
         gpsStream: gpsSubject.stream,
         compassHeadingStream: headingSubject.stream,
       );
+      calcService = createdCalc;
 
-      calcSub = calcService!.results.listen((result) async {
+      calcSub = createdCalc.results.listen((result) async {
         await HomeWidget.saveWidgetData<double>(
           'pointer_angle',
           result.pointerAngle,
@@ -134,7 +142,7 @@ void onStart(ServiceInstance service) async {
         });
       });
     } else {
-      calcService!.setTarget(target);
+      existingCalc.setTarget(target);
     }
   }
 
@@ -205,4 +213,19 @@ double? _toDouble(Object? v) {
   if (v is num) return v.toDouble();
   if (v is String) return double.tryParse(v);
   return null;
+}
+
+void _registerHiveAdapters() {
+  if (!Hive.isAdapterRegistered(0)) {
+    Hive.registerAdapter(SavedLocationAdapter());
+  }
+  if (!Hive.isAdapterRegistered(1)) {
+    Hive.registerAdapter(PairedDeviceAdapter());
+  }
+  if (!Hive.isAdapterRegistered(2)) {
+    Hive.registerAdapter(InviteCodeAdapter());
+  }
+  if (!Hive.isAdapterRegistered(3)) {
+    Hive.registerAdapter(InviteCodeRefreshModeAdapter());
+  }
 }

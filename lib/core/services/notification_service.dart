@@ -5,15 +5,11 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:pointer_app/core/services/connection_service.dart';
 
 class NotificationService {
-  factory NotificationService({ConnectionService? connectionService}) {
-    final instance = _instance ??= NotificationService._();
-    if (connectionService != null) {
-      instance._connectionService = connectionService;
-    }
-    return instance;
-  }
-
-  NotificationService._();
+  NotificationService({
+    ConnectionService? connectionService,
+    FlutterLocalNotificationsPlugin? plugin,
+  }) : _connectionService = connectionService,
+       _plugin = plugin ?? FlutterLocalNotificationsPlugin();
 
   static const String _categoryConnectRequest = 'connect_request';
   static const String _androidChannelId = 'connect_requests';
@@ -23,11 +19,9 @@ class NotificationService {
   static const String actionApprove = 'approve';
   static const String actionReject = 'reject';
 
-  static NotificationService? _instance;
-  static bool _initialized = false;
-  ConnectionService? _connectionService;
-  final FlutterLocalNotificationsPlugin _plugin =
-      FlutterLocalNotificationsPlugin();
+  final ConnectionService? _connectionService;
+  final FlutterLocalNotificationsPlugin _plugin;
+  bool _initialized = false;
 
   Future<void> init() async {
     if (_initialized) return;
@@ -63,7 +57,7 @@ class NotificationService {
         iOS: iosSettings,
       ),
       onDidReceiveNotificationResponse: (response) {
-        _handleResponse(response);
+        unawaited(_handleResponse(response));
       },
     );
 

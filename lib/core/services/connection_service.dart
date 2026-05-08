@@ -117,13 +117,14 @@ class ConnectionService {
     final box = await Hive.openBox<String>('connection');
     _pairId = box.get('pairId');
 
-    if (_pairId != null && _pairId!.isNotEmpty) {
+    final pairId = _pairId;
+    if (pairId != null && pairId.isNotEmpty) {
       _setState(ConnectionState.reconnecting);
       await _connect();
       _sendJson(<String, Object?>{
         'type': 'connect_request',
         'requestId': _newRequestId(),
-        'pairId': _pairId,
+        'pairId': pairId,
         'fromUserId': myUserId,
       });
     }
@@ -327,7 +328,8 @@ class ConnectionService {
       _setState(ConnectionState.peerOffline);
     }
 
-    if (_pairId != null && _pairId!.isNotEmpty) {
+    final pairId = _pairId;
+    if (pairId != null && pairId.isNotEmpty) {
       _setState(ConnectionState.reconnecting);
       _scheduleReconnect();
     } else {

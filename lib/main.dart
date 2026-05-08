@@ -13,7 +13,8 @@ Future<void> main() async {
   _registerHiveAdapters();
 
   await initBackgroundService();
-  await NotificationService().init();
+  final notificationService = NotificationService();
+  await notificationService.init();
 
   runApp(const PointerApp());
 }

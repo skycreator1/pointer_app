@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -63,10 +61,12 @@ class _StartupPage extends StatefulWidget {
 
 class _StartupPageState extends State<_StartupPage> {
   late final Future<String> _initialRouteFuture = _decideInitialRoute();
+  late final PermissionService _permissionService = PermissionService();
 
   @override
   Widget build(BuildContext context) {
     return PermissionGate(
+      service: _permissionService,
       requiredPermissions: const [Permission.locationWhenInUse],
       child: Scaffold(
         backgroundColor: Colors.black,
@@ -75,9 +75,11 @@ class _StartupPageState extends State<_StartupPage> {
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.done &&
                 snapshot.hasData) {
+              final path = snapshot.data;
+              if (path == null) return const SizedBox.shrink();
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (!mounted) return;
-                context.go(snapshot.data!);
+                context.go(path);
               });
             }
 
@@ -122,7 +124,8 @@ class _CompassShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final selectedIndex = location.startsWith('/compass/device') ? 1 : 0;
-    final isCupertino = Platform.isIOS;
+    final platform = Theme.of(context).platform;
+    final isCupertino = platform == TargetPlatform.iOS;
 
     if (isCupertino) {
       return CupertinoPageScaffold(

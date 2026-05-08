@@ -78,6 +78,7 @@ class PermissionService {
 class PermissionGate extends StatefulWidget {
   const PermissionGate({
     super.key,
+    required this.service,
     required this.requiredPermissions,
     required this.child,
     this.title,
@@ -85,6 +86,7 @@ class PermissionGate extends StatefulWidget {
     this.buttonText = '前往授权',
   });
 
+  final PermissionService service;
   final List<Permission> requiredPermissions;
   final Widget child;
   final String? title;
@@ -96,14 +98,13 @@ class PermissionGate extends StatefulWidget {
 }
 
 class _PermissionGateState extends State<PermissionGate> {
-  late final PermissionService _service;
+  PermissionService get _service => widget.service;
   final Map<Permission, PermissionStatus> _statuses = {};
   final List<StreamSubscription<PermissionStatus>> _subs = [];
 
   @override
   void initState() {
     super.initState();
-    _service = PermissionService();
     for (final permission in widget.requiredPermissions) {
       _subs.add(
         _service.watchStatus(permission).listen((status) {
@@ -119,7 +120,10 @@ class _PermissionGateState extends State<PermissionGate> {
   @override
   void didUpdateWidget(covariant PermissionGate oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!_samePermissions(oldWidget.requiredPermissions, widget.requiredPermissions)) {
+    if (!_samePermissions(
+      oldWidget.requiredPermissions,
+      widget.requiredPermissions,
+    )) {
       for (final sub in _subs) {
         sub.cancel();
       }
@@ -144,7 +148,7 @@ class _PermissionGateState extends State<PermissionGate> {
       sub.cancel();
     }
     _subs.clear();
-    _service.dispose();
+    unawaited(_service.dispose());
     super.dispose();
   }
 
@@ -275,4 +279,3 @@ class PermissionPlatformHints {
     'NSLocationAlwaysUsageDescription',
   ];
 }
-
