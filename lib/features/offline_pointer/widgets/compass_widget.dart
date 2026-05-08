@@ -7,15 +7,11 @@ class CompassWidget extends StatefulWidget {
   const CompassWidget({
     super.key,
     required this.angle,
-    required this.distanceMeters,
-    required this.targetName,
     required this.isOnline,
     this.theme,
   });
 
   final double angle;
-  final double distanceMeters;
-  final String targetName;
   final bool isOnline;
   final CompassTheme? theme;
 
@@ -54,31 +50,45 @@ class _CompassWidgetState extends State<CompassWidget> {
         ? const Duration(milliseconds: 420)
         : const Duration(milliseconds: 220);
 
-    return TweenAnimationBuilder<double>(
-      tween: Tween<double>(end: endAngle),
-      duration: duration,
-      curve: Curves.easeOutCubic,
-      builder: (context, value, _) {
-        final normalized = _normalizeDegrees(value);
-        _latestAngle = normalized;
-        return TweenAnimationBuilder<double>(
-          tween: Tween<double>(end: widget.isOnline ? 0.0 : 1.0),
-          duration: const Duration(milliseconds: 260),
+    final dial = RepaintBoundary(
+      child: CustomPaint(
+        painter: CompassDialPainter(theme: theme),
+        child: const SizedBox.expand(),
+      ),
+    );
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        dial,
+        TweenAnimationBuilder<double>(
+          tween: Tween<double>(end: endAngle),
+          duration: duration,
           curve: Curves.easeOutCubic,
-          builder: (context, offlineFactor, _) {
-            return CustomPaint(
-              painter: CompassPainter(
-                theme: theme,
-                angle: normalized,
-                distanceMeters: widget.distanceMeters,
-                targetName: widget.targetName,
-                offlineFactor: offlineFactor,
-                offlineColor: offlineColor,
-              ),
+          builder: (context, value, _) {
+            final normalized = _normalizeDegrees(value);
+            _latestAngle = normalized;
+            return TweenAnimationBuilder<double>(
+              tween: Tween<double>(end: widget.isOnline ? 0.0 : 1.0),
+              duration: const Duration(milliseconds: 260),
+              curve: Curves.easeOutCubic,
+              builder: (context, offlineFactor, _) {
+                return RepaintBoundary(
+                  child: CustomPaint(
+                    painter: CompassNeedlePainter(
+                      theme: theme,
+                      angle: normalized,
+                      offlineFactor: offlineFactor,
+                      offlineColor: offlineColor,
+                    ),
+                    child: const SizedBox.expand(),
+                  ),
+                );
+              },
             );
           },
-        );
-      },
+        ),
+      ],
     );
   }
 

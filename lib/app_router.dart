@@ -6,6 +6,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:pointer_app/core/models/paired_device.dart';
 import 'package:pointer_app/core/services/permission_service.dart';
 import 'package:pointer_app/core/theme/app_theme.dart';
+import 'package:pointer_app/features/offline_pointer/view/offline_pointer_page.dart';
 import 'package:pointer_app/features/offline_pointer/view/location_picker_page.dart';
 
 final GoRouter appRouter = GoRouter(
@@ -26,7 +27,7 @@ final GoRouter appRouter = GoRouter(
         ),
         GoRoute(
           path: '/compass/offline',
-          builder: (context, state) => const _OfflinePointerPage(),
+          builder: (context, state) => const OfflinePointerPage(),
         ),
         GoRoute(
           path: '/compass/device',
@@ -200,22 +201,6 @@ class _AppLogo extends StatelessWidget {
       ),
       child: const Center(
         child: Icon(Icons.navigation, color: Colors.white, size: 36),
-      ),
-    );
-  }
-}
-
-class _OfflinePointerPage extends StatelessWidget {
-  const _OfflinePointerPage();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: Center(
-          child: Text('离线地点指针', style: TextStyle(color: Colors.white)),
-        ),
       ),
     );
   }
