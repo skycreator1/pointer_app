@@ -4,6 +4,7 @@ import 'package:pointer_app/app_router.dart';
 import 'package:pointer_app/core/services/background_service.dart';
 import 'package:pointer_app/core/services/notification_service.dart';
 import 'package:pointer_app/core/theme/app_theme.dart';
+import 'package:pointer_app/l10n/app_localizations.dart';
 import 'package:pointer_app/core/models/invite_code.dart';
 import 'package:pointer_app/core/models/paired_device.dart';
 import 'package:pointer_app/core/models/saved_location.dart';
@@ -31,6 +32,8 @@ class PointerApp extends StatelessWidget {
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.system,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
     );
   }
 }

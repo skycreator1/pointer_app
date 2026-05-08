@@ -1,0 +1,49 @@
+{
+  "appName": "Pointer",
+  "compassTitle": "Pointer",
+  "distanceUnit_m": "{distance}m",
+  "@distanceUnit_m": {
+    "placeholders": {
+      "distance": {}
+    }
+  },
+  "distanceUnit_km": "{distance} km",
+  "@distanceUnit_km": {
+    "placeholders": {
+      "distance": {}
+    }
+  },
+  "inviteCodeLabel": "My invite code",
+  "inviteCodeRefreshDaily": "Refresh daily",
+  "inviteCodeRefreshOnDemand": "Refresh manually",
+  "connectInputHint": "Enter peer invite code",
+  "connectWaiting": "Waiting for approval…",
+  "connectApprove": "Approve",
+  "connectReject": "Reject",
+  "connectRequestTitle": "{name} wants to connect",
+  "@connectRequestTitle": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "connectRequestBody": "Allow this device to share location with you?",
+  "peerOnline": "Online",
+  "peerOffline": "Peer is offline",
+  "settingsTitle": "Settings",
+  "settingsSectionInvite": "My invite code",
+  "settingsSectionDevices": "Paired devices",
+  "settingsSectionBackground": "Background & location",
+  "settingsSectionWidget": "Home widget",
+  "backgroundRunning": "Running in background",
+  "locationAccuracyHigh": "High accuracy",
+  "locationAccuracySaving": "Battery saving",
+  "permissionDeniedTitle": "Location permission required",
+  "permissionDeniedBody": "Pointer needs access to your location to calculate direction and distance",
+  "permissionGoToSettings": "Grant permission",
+  "noTargetSelected": "Select a target location to start",
+  "addLocation": "Add location",
+  "locationNameHint": "Name this location",
+  "saveLocation": "Save",
+  "deleteConnection": "Remove pairing"
+}
+

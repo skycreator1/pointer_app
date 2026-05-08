@@ -1,0 +1,49 @@
+{
+  "appName": "指针",
+  "compassTitle": "指针",
+  "distanceUnit_m": "{distance}m",
+  "@distanceUnit_m": {
+    "placeholders": {
+      "distance": {}
+    }
+  },
+  "distanceUnit_km": "{distance} km",
+  "@distanceUnit_km": {
+    "placeholders": {
+      "distance": {}
+    }
+  },
+  "inviteCodeLabel": "我的邀请码",
+  "inviteCodeRefreshDaily": "每天自动刷新",
+  "inviteCodeRefreshOnDemand": "手动刷新",
+  "connectInputHint": "输入对方邀请码",
+  "connectWaiting": "等待对方同意…",
+  "connectApprove": "同意",
+  "connectReject": "拒绝",
+  "connectRequestTitle": "{name} 请求连接",
+  "@connectRequestTitle": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "connectRequestBody": "是否允许与该设备共享位置？",
+  "peerOnline": "已上线",
+  "peerOffline": "对方当前离线",
+  "settingsTitle": "设置",
+  "settingsSectionInvite": "我的邀请码",
+  "settingsSectionDevices": "已配对设备",
+  "settingsSectionBackground": "后台与定位",
+  "settingsSectionWidget": "桌面组件",
+  "backgroundRunning": "后台运行",
+  "locationAccuracyHigh": "高精度",
+  "locationAccuracySaving": "省电模式",
+  "permissionDeniedTitle": "需要位置权限",
+  "permissionDeniedBody": "指针需要访问您的位置来计算方向和距离",
+  "permissionGoToSettings": "前往授权",
+  "noTargetSelected": "选择一个目标地点开始导航",
+  "addLocation": "添加地点",
+  "locationNameHint": "给这个地点起个名字",
+  "saveLocation": "保存",
+  "deleteConnection": "移除配对"
+}
+
