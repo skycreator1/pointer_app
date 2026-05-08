@@ -45,7 +45,6 @@ dependencies:
   rxdart: any
   permission_handler: any
   web_socket_channel: any
-  home_widget: any
   flutter_local_notifications: any
   flutter_background_service: any
   flutter_map: any

@@ -5,7 +5,6 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:home_widget/home_widget.dart';
 import 'package:pointer_app/core/models/invite_code.dart';
 import 'package:pointer_app/core/models/paired_device.dart';
 import 'package:pointer_app/core/models/saved_location.dart';
@@ -126,16 +125,6 @@ void onStart(ServiceInstance service) async {
       calcService = createdCalc;
 
       calcSub = createdCalc.results.listen((result) async {
-        await HomeWidget.saveWidgetData<double>(
-          'pointer_angle',
-          result.pointerAngle,
-        );
-        await HomeWidget.saveWidgetData<String>(
-          'peer_distance',
-          _formatDistance(result.distance),
-        );
-        await HomeWidget.updateWidget(name: 'PointerWidget');
-
         service.invoke('pointer_result', <String, dynamic>{
           'distance': result.distance,
           'pointerAngle': result.pointerAngle,
@@ -200,13 +189,6 @@ void onStart(ServiceInstance service) async {
       });
     } catch (_) {}
   });
-}
-
-String _formatDistance(double meters) {
-  if (!meters.isFinite) return '--';
-  if (meters < 1000) return '${meters.round()} m';
-  final km = meters / 1000.0;
-  return '${km.toStringAsFixed(1)} km';
 }
 
 double? _toDouble(Object? v) {
