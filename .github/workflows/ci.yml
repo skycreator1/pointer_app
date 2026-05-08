@@ -89,9 +89,12 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
-          store_type="$(awk -F= '/^storeType=/{print $2; exit}' android/key.properties)"
-          if [ -z "$store_type" ]; then
-            store_type="JKS"
+          store_type="JKS"
+          if [ -f android/key.properties ]; then
+            store_type="$(awk -F= '/^storeType=/{print $2; exit}' android/key.properties || true)"
+            if [ -z "$store_type" ]; then
+              store_type="JKS"
+            fi
           fi
 
           set +e
