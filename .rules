@@ -1,0 +1,10 @@
+# pointer_app Rules
+
+- 语言：Flutter/Dart，版本 3.x，空安全
+- 状态管理：只用 flutter_bloc，不用 Provider 或 Riverpod
+- 本地存储：只用 Hive，不用 SQLite 或 SharedPreferences（除 home_widget 要求外）
+- 异步：优先 Stream，避免轮询
+- 命名：文件 snake_case，类 PascalCase，私有变量 _camelCase
+- 每个公共方法必须有 dartdoc 注释
+- 不生成任何 print() 语句，日志用 logger 包
+- 生成代码后自动检查 Stream 是否都有 cancel
