@@ -27,9 +27,11 @@ class _OfflinePointerPageState extends State<OfflinePointerPage> {
   SavedLocation? _target;
   LocationCalcService? _calcService;
   StreamSubscription<PointerResult>? _sub;
+  StreamSubscription<double>? _headingSub;
 
   double _angle = 0;
   double _distance = double.nan;
+  double _heading = 0;
 
   @override
   void initState() {
@@ -41,6 +43,8 @@ class _OfflinePointerPageState extends State<OfflinePointerPage> {
   void dispose() {
     _sub?.cancel();
     _sub = null;
+    _headingSub?.cancel();
+    _headingSub = null;
     _calcService?.dispose();
     _calcService = null;
     super.dispose();
@@ -56,6 +60,8 @@ class _OfflinePointerPageState extends State<OfflinePointerPage> {
   void _setTarget(SavedLocation target) {
     _sub?.cancel();
     _sub = null;
+    _headingSub?.cancel();
+    _headingSub = null;
     _calcService?.dispose();
     _calcService = null;
 
@@ -85,7 +91,7 @@ class _OfflinePointerPageState extends State<OfflinePointerPage> {
     final compassHeadingStream = Rx.concat<double>([
       Stream<double>.value(0.0),
       headingStream.map((v) => v.isFinite ? v : 0.0),
-    ]);
+    ]).asBroadcastStream();
 
     final service = LocationCalcService(
       target: target,
@@ -99,6 +105,12 @@ class _OfflinePointerPageState extends State<OfflinePointerPage> {
       setState(() {
         _angle = result.pointerAngle;
         _distance = result.distance;
+      });
+    });
+    _headingSub = compassHeadingStream.listen((h) {
+      if (!mounted) return;
+      setState(() {
+        _heading = h;
       });
     });
 
@@ -118,42 +130,78 @@ class _OfflinePointerPageState extends State<OfflinePointerPage> {
   Widget build(BuildContext context) {
     final target = _target;
     if (target == null) {
-      return Scaffold(
-        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        appBar: AppBar(title: Text(context.l10n.compassTitle)),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  context.l10n.noTargetSelected,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 12),
-                ElevatedButton(
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.navigation, color: Colors.white, size: 46),
+              const SizedBox(height: 12),
+              Text(
+                context.l10n.noTargetSelected,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Color(0xB3FFFFFF), fontSize: 14),
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                height: 44,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
                   onPressed: _addLocation,
                   child: Text(context.l10n.addLocation),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       );
     }
 
     final isVisible = ModalRoute.of(context)?.isCurrent ?? true;
+    final headingValue = ((_heading % 360) + 360) % 360;
+    final headingInt = headingValue.round() % 360;
 
-    return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      appBar: AppBar(title: Text(context.l10n.compassTitle)),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 8, 18, 16),
+      child: Column(
+        children: [
+          Column(
             children: [
-              Expanded(
+              Text(
+                '$headingInt°',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 44,
+                  fontWeight: FontWeight.w700,
+                  height: 1.0,
+                  letterSpacing: -0.8,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _cardinal(headingValue),
+                style: const TextStyle(
+                  color: Color(0xB3FFFFFF),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.2,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Expanded(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 360),
                 child: RepaintBoundary(
                   child: TickerMode(
                     enabled: isVisible,
@@ -164,24 +212,32 @@ class _OfflinePointerPageState extends State<OfflinePointerPage> {
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              RepaintBoundary(
-                child: _InfoPanel(
-                  targetName: target.name,
-                  distanceMeters: _distance,
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: _addLocation,
-                  child: Text(context.l10n.addLocation),
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+          const SizedBox(height: 10),
+          RepaintBoundary(
+            child: _InfoPanel(
+              targetName: target.name,
+              distanceMeters: _distance,
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: const BorderSide(color: Color(0x33FFFFFF)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: _addLocation,
+              child: Text(context.l10n.addLocation),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -202,7 +258,7 @@ class _InfoPanel extends StatelessWidget {
         Text(
           targetName,
           style: AppTextStyles.bodySecondary.copyWith(
-            color: Theme.of(context).colorScheme.onSurface,
+            color: const Color(0xB3FFFFFF),
           ),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -211,7 +267,7 @@ class _InfoPanel extends StatelessWidget {
         Text(
           distanceText,
           style: AppTextStyles.displayDistance.copyWith(
-            color: Theme.of(context).colorScheme.onSurface,
+            color: Colors.white,
           ),
         ),
       ],
@@ -225,6 +281,12 @@ class _InfoPanel extends StatelessWidget {
     }
     return context.l10n.distanceUnit_km((meters / 1000).toStringAsFixed(2));
   }
+}
+
+String _cardinal(double heading) {
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  final index = ((heading + 22.5) / 45).floor() % 8;
+  return dirs[index];
 }
 
 Stream<Position> _adaptiveThrottle(

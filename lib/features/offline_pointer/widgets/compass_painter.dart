@@ -9,6 +9,11 @@ class CompassDialPainter extends CustomPainter {
         ..color = theme.dialColor
         ..style = PaintingStyle.fill
         ..isAntiAlias = true,
+      _ringPaint = Paint()
+        ..color = const Color(0x33FFFFFF)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..isAntiAlias = true,
       _tickPaint = Paint()
         ..color = theme.tickColor
         ..style = PaintingStyle.stroke
@@ -68,6 +73,7 @@ class CompassDialPainter extends CustomPainter {
       );
 
   final Paint _dialPaint;
+  final Paint _ringPaint;
   final Paint _tickPaint;
   final TextPainter _nTextPainter;
   final TextPainter _sTextPainter;
@@ -80,11 +86,22 @@ class CompassDialPainter extends CustomPainter {
     final radius = size.shortestSide * 0.85 * 0.5;
 
     canvas.drawCircle(center, radius, _dialPaint);
+    canvas.drawCircle(center, radius, _ringPaint);
+    canvas.drawCircle(center, radius * 0.77, _ringPaint);
 
-    for (var deg = 0; deg < 360; deg += 10) {
+    for (var deg = 0; deg < 360; deg += 5) {
       final isMajor = deg % 30 == 0;
-      final tickLen = isMajor ? radius * 0.08 : radius * 0.04;
-      _tickPaint.strokeWidth = isMajor ? 2 : 1;
+      final isMid = !isMajor && deg % 10 == 0;
+      final tickLen = isMajor
+          ? radius * 0.10
+          : isMid
+          ? radius * 0.065
+          : radius * 0.035;
+      _tickPaint.strokeWidth = isMajor
+          ? 2.2
+          : isMid
+          ? 1.4
+          : 1.0;
 
       final a = (deg - 90) * math.pi / 180.0;
       final dir = Offset(math.cos(a), math.sin(a));
@@ -93,7 +110,30 @@ class CompassDialPainter extends CustomPainter {
       canvas.drawLine(p1, p2, _tickPaint);
     }
 
-    final distance = radius * 0.78;
+    for (var deg = 0; deg < 360; deg += 30) {
+      if (deg % 90 == 0) continue;
+      final label = deg == 0 ? '360' : '$deg';
+      final tp = TextPainter(
+        text: TextSpan(
+          text: label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            height: 1.0,
+            color: _tickPaint.color.withValues(alpha: 0.9),
+          ),
+        ),
+        textAlign: TextAlign.center,
+        textDirection: TextDirection.ltr,
+      )..layout();
+
+      final a = (deg - 90) * math.pi / 180.0;
+      final dir = Offset(math.cos(a), math.sin(a));
+      final pos = center + dir * (radius * 0.64);
+      tp.paint(canvas, pos - Offset(tp.width / 2, tp.height / 2));
+    }
+
+    final distance = radius * 0.80;
     _nTextPainter.layout();
     _sTextPainter.layout();
     _eTextPainter.layout();
