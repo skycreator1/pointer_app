@@ -1,11 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hive/hive.dart';
@@ -22,56 +20,23 @@ class LocationPickerPage extends StatefulWidget {
 }
 
 class _LocationPickerPageState extends State<LocationPickerPage> {
-  static Future<void>? _fmtcInitFuture;
-  static const _storeName = 'amap_tiles';
-  static const _tileSubdomains = <String>['1', '2', '3', '4'];
-
-  static final Uint8List _grayPngBytes = base64Decode(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/Upm3XQAAAAASUVORK5CYII=',
-  );
-
-  final MapController _mapController = MapController();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
 
   Timer? _idleDebounce;
   Timer? _searchDebounce;
-  StreamSubscription<DownloadProgress>? _downloadProgressSub;
-
-  FMTCStore? _store;
-  Object? _downloadInstanceId;
 
   LatLng _selected = const LatLng(39.9, 116.4);
+  double _zoom = 14;
   String? _address;
   bool _geocoding = false;
-  bool _downloading = false;
   bool _searching = false;
-  int _tileReloadKey = 0;
-  DateTime _lastCacheStart = DateTime.fromMillisecondsSinceEpoch(0);
   List<_AmapTip> _tips = const [];
 
   @override
   void initState() {
     super.initState();
-    _initialise();
     _searchController.addListener(_onSearchTextChanged);
-  }
-
-  Future<void> _initialise() async {
-    if (kIsWeb) return;
-    _fmtcInitFuture ??= FMTCObjectBoxBackend().initialise();
-    await _fmtcInitFuture;
-
-    final store = FMTCStore(_storeName);
-    final ready = await store.manage.ready;
-    if (!ready) {
-      await store.manage.create();
-    }
-
-    if (!mounted) return;
-    setState(() {
-      _store = store;
-    });
   }
 
   @override
@@ -80,24 +45,14 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     _idleDebounce = null;
     _searchDebounce?.cancel();
     _searchDebounce = null;
-    _downloadProgressSub?.cancel();
-    _downloadProgressSub = null;
-
-    final store = _store;
-    final instanceId = _downloadInstanceId;
-    if (store != null && instanceId != null) {
-      unawaited(store.download.cancel(instanceId: instanceId));
-    }
 
     _nameController.dispose();
     _searchController.dispose();
-    _mapController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final tileProvider = NetworkTileProvider();
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -111,25 +66,17 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
             Expanded(
               child: Stack(
                 children: [
-                  FlutterMap(
-                    mapController: _mapController,
-                    options: MapOptions(
-                      initialCenter: _selected,
-                      initialZoom: 14,
-                      onPositionChanged: (camera, hasGesture) {
-                        _onMapIdle(camera.center);
-                      },
-                    ),
-                    children: [
-                      TileLayer(
-                        key: ValueKey(_tileReloadKey),
-                        urlTemplate: _amapUrlTemplate(widget.amapKey),
-                        subdomains: _tileSubdomains,
-                        tileProvider: tileProvider,
-                        userAgentPackageName: 'com.example.pointer_app',
-                        errorImage: MemoryImage(_grayPngBytes),
-                      ),
-                    ],
+                  _AmapStaticMap(
+                    amapKey: widget.amapKey,
+                    center: _selected,
+                    zoom: _zoom,
+                    onCameraChanged: (center, zoom) {
+                      setState(() {
+                        _selected = center;
+                        _zoom = zoom;
+                      });
+                      _onMapIdle(center);
+                    },
                   ),
                   const IgnorePointer(
                     child: Center(
@@ -163,21 +110,9 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                           icon: Icons.my_location,
                           onTap: _locateMe,
                         ),
-                        const SizedBox(height: 12),
-                        if (!kIsWeb)
-                          _CircleButton(
-                            icon: Icons.download,
-                            onTap: _downloadViewport,
-                          ),
                       ],
                     ),
                   ),
-                  if (!kIsWeb && _downloading)
-                    const Positioned(
-                      left: 16,
-                      top: 16,
-                      child: _Pill(text: '缓存中…'),
-                    ),
                 ],
               ),
             ),
@@ -216,11 +151,10 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     if (_searching) return;
     setState(() => _searching = true);
     try {
-      final center = _mapController.camera.center;
       final tips = await _amapInputTips(
         key: widget.amapKey,
         keywords: keywords,
-        locationBias: center,
+        locationBias: _selected,
       );
       if (!mounted) return;
       setState(() => _tips = tips);
@@ -241,16 +175,14 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
         _nameController.text = tip.name;
       }
     });
-    _mapController.move(tip.location, _mapController.camera.zoom);
     _onMapIdle(tip.location);
   }
 
   void _onMapIdle(LatLng center) {
     _idleDebounce?.cancel();
     _idleDebounce = Timer(const Duration(milliseconds: 550), () {
-      setState(() => _selected = center);
+      if (!mounted) return;
       unawaited(_reverseGeocode(center));
-      unawaited(_downloadViewport());
     });
   }
 
@@ -258,7 +190,7 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     try {
       final pos = await Geolocator.getCurrentPosition();
       final center = LatLng(pos.latitude, pos.longitude);
-      _mapController.move(center, _mapController.camera.zoom);
+      setState(() => _selected = center);
       _onMapIdle(center);
     } catch (_) {}
   }
@@ -284,76 +216,6 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     }
   }
 
-  Future<void> _downloadViewport() async {
-    final store = _store;
-    if (store == null) return;
-
-    final now = DateTime.now();
-    if (now.difference(_lastCacheStart) < const Duration(seconds: 10)) return;
-    _lastCacheStart = now;
-
-    if (_downloading) return;
-    setState(() => _downloading = true);
-
-    _downloadProgressSub?.cancel();
-    _downloadProgressSub = null;
-
-    final instanceId = Object();
-    _downloadInstanceId = instanceId;
-
-    final bounds = _mapController.camera.visibleBounds;
-    final zoom = _mapController.camera.zoom;
-    final minZoom = (zoom.floor() - 1).clamp(3, 18);
-    final maxZoom = (zoom.ceil() + 1).clamp(3, 19);
-
-    final region = RectangleRegion(bounds).toDownloadable(
-      minZoom: minZoom,
-      maxZoom: maxZoom,
-      options: TileLayer(
-        urlTemplate: _amapUrlTemplate(widget.amapKey),
-        subdomains: _tileSubdomains,
-      ),
-    );
-
-    final streams = store.download.startForeground(
-      region: region,
-      parallelThreads: 4,
-      maxBufferLength: 120,
-      skipExistingTiles: true,
-      instanceId: instanceId,
-    );
-
-    _downloadProgressSub = streams.downloadProgress.listen(
-      (progress) {
-        final processed =
-            progress.successfulTilesCount +
-            progress.existingTilesCount +
-            progress.seaTilesCount +
-            progress.negativeResponseTilesCount +
-            progress.failedRequestTilesCount;
-
-        if (processed >= progress.maxTilesCount) {
-          if (!mounted) return;
-          setState(() {
-            _downloading = false;
-            _tileReloadKey++;
-          });
-        }
-      },
-      onDone: () {
-        if (!mounted) return;
-        setState(() {
-          _downloading = false;
-          _tileReloadKey++;
-        });
-      },
-      onError: (Object error, StackTrace stackTrace) {
-        if (!mounted) return;
-        setState(() => _downloading = false);
-      },
-    );
-  }
-
   Future<void> _save() async {
     final name = _nameController.text.trim();
     if (name.isEmpty) return;
@@ -373,8 +235,28 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   }
 }
 
-String _amapUrlTemplate(String key) {
-  return 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}&key=$key';
+Uri _amapStaticMapUri({
+  required String key,
+  required LatLng center,
+  required int zoom,
+  required int width,
+  required int height,
+  int scale = 1,
+  int traffic = 0,
+}) {
+  final z = zoom.clamp(1, 17);
+  final w = width.clamp(1, 1024);
+  final h = height.clamp(1, 1024);
+  final lon = center.longitude.toStringAsFixed(6);
+  final lat = center.latitude.toStringAsFixed(6);
+  return Uri.https('restapi.amap.com', '/v3/staticmap', <String, String>{
+    'key': key,
+    'location': '$lon,$lat',
+    'zoom': '$z',
+    'size': '$w*$h',
+    'scale': '${scale.clamp(1, 2)}',
+    'traffic': '${traffic.clamp(0, 1)}',
+  });
 }
 
 Future<String?> _amapReverseGeocode({
@@ -405,6 +287,216 @@ Future<String?> _amapReverseGeocode({
     return formatted?.isEmpty ?? true ? null : formatted;
   } finally {
     client.close(force: true);
+  }
+}
+
+class _AmapStaticMap extends StatefulWidget {
+  const _AmapStaticMap({
+    required this.amapKey,
+    required this.center,
+    required this.zoom,
+    required this.onCameraChanged,
+  });
+
+  final String amapKey;
+  final LatLng center;
+  final double zoom;
+  final void Function(LatLng center, double zoom) onCameraChanged;
+
+  @override
+  State<_AmapStaticMap> createState() => _AmapStaticMapState();
+}
+
+class _AmapStaticMapState extends State<_AmapStaticMap> {
+  static const _ln2 = 0.6931471805599453;
+  static double _sinh(double x) => (math.exp(x) - math.exp(-x)) / 2.0;
+
+  LatLng _center = const LatLng(39.9, 116.4);
+  double _zoom = 14;
+
+  Timer? _imageDebounce;
+  String _imageUrl = '';
+
+  LatLng? _gestureStartCenter;
+  double? _gestureStartZoom;
+  Offset? _gestureStartFocal;
+
+  @override
+  void initState() {
+    super.initState();
+    _center = widget.center;
+    _zoom = widget.zoom;
+  }
+
+  @override
+  void didUpdateWidget(covariant _AmapStaticMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.center != widget.center) {
+      _center = widget.center;
+    }
+    if (oldWidget.zoom != widget.zoom) {
+      _zoom = widget.zoom;
+    }
+  }
+
+  @override
+  void dispose() {
+    _imageDebounce?.cancel();
+    _imageDebounce = null;
+    super.dispose();
+  }
+
+  void _scheduleImageRefresh({
+    required Size size,
+    Duration delay = const Duration(milliseconds: 120),
+  }) {
+    _imageDebounce?.cancel();
+    _imageDebounce = Timer(delay, () {
+      if (!mounted) return;
+      final w = size.width.isFinite ? size.width.round() : 0;
+      final h = size.height.isFinite ? size.height.round() : 0;
+      if (w <= 0 || h <= 0) return;
+
+      final uri = _amapStaticMapUri(
+        key: widget.amapKey,
+        center: _center,
+        zoom: _zoom.round(),
+        width: w,
+        height: h,
+      );
+      setState(() => _imageUrl = uri.toString());
+    });
+  }
+
+  void _onScaleStart(ScaleStartDetails details) {
+    _gestureStartCenter = _center;
+    _gestureStartZoom = _zoom;
+    _gestureStartFocal = details.focalPoint;
+  }
+
+  void _onScaleUpdate(ScaleUpdateDetails details, Size size) {
+    final startCenter = _gestureStartCenter;
+    final startZoom = _gestureStartZoom;
+    final startFocal = _gestureStartFocal;
+    if (startCenter == null || startZoom == null || startFocal == null) return;
+
+    final scale = details.scale.isFinite ? details.scale : 1.0;
+    final zoomDelta = math.log(scale) / _ln2;
+    final nextZoom = (startZoom + zoomDelta).clamp(1.0, 17.0);
+    final nextZoomInt = nextZoom.round().clamp(1, 17);
+
+    final delta = details.focalPoint - startFocal;
+    final nextCenter = _panTo(
+      startCenter: startCenter,
+      deltaPx: delta,
+      zoom: nextZoomInt,
+    );
+
+    _center = nextCenter;
+    _zoom = nextZoom;
+    widget.onCameraChanged(nextCenter, nextZoom);
+    _scheduleImageRefresh(size: size);
+  }
+
+  void _onScaleEnd(ScaleEndDetails details, Size size) {
+    _gestureStartCenter = null;
+    _gestureStartZoom = null;
+    _gestureStartFocal = null;
+    _scheduleImageRefresh(size: size, delay: const Duration(milliseconds: 40));
+  }
+
+  LatLng _panTo({
+    required LatLng startCenter,
+    required Offset deltaPx,
+    required int zoom,
+  }) {
+    final start = _toWorldPixel(startCenter, zoom);
+    final next = Offset(start.dx - deltaPx.dx, start.dy - deltaPx.dy);
+    return _fromWorldPixel(next, zoom);
+  }
+
+  Offset _toWorldPixel(LatLng p, int zoom) {
+    final z = zoom.clamp(1, 17);
+    final worldSize = 256.0 * math.pow(2.0, z);
+    final lat = p.latitude.clamp(-85.05112878, 85.05112878);
+    final lon = p.longitude;
+
+    final x = (lon + 180.0) / 360.0 * worldSize;
+    final latRad = lat * math.pi / 180.0;
+    final y =
+        (1.0 - math.log(math.tan(latRad) + (1 / math.cos(latRad))) / math.pi) /
+        2.0 *
+        worldSize;
+    return Offset(x, y);
+  }
+
+  LatLng _fromWorldPixel(Offset px, int zoom) {
+    final z = zoom.clamp(1, 17);
+    final worldSize = 256.0 * math.pow(2.0, z);
+    final x = px.dx.clamp(0.0, worldSize);
+    final y = px.dy.clamp(0.0, worldSize);
+
+    final lon = x / worldSize * 360.0 - 180.0;
+    final n = math.pi - 2.0 * math.pi * y / worldSize;
+    final lat = 180.0 / math.pi * math.atan(_sinh(n));
+    return LatLng(lat, lon);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = constraints.biggest;
+        if (_imageUrl.isEmpty && size.width > 0 && size.height > 0) {
+          final uri = _amapStaticMapUri(
+            key: widget.amapKey,
+            center: _center,
+            zoom: _zoom.round(),
+            width: size.width.round(),
+            height: size.height.round(),
+          );
+          _imageUrl = uri.toString();
+        }
+
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onScaleStart: _onScaleStart,
+          onScaleUpdate: (d) => _onScaleUpdate(d, size),
+          onScaleEnd: (d) => _onScaleEnd(d, size),
+          child: DecoratedBox(
+            decoration: const BoxDecoration(color: Color(0xFF0B0B0D)),
+            child: _imageUrl.isEmpty
+                ? const SizedBox.expand()
+                : Image.network(
+                    _imageUrl,
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.low,
+                    gaplessPlayback: true,
+                    errorBuilder: (context, error, stackTrace) {
+                      return const ColoredBox(color: Color(0xFF0B0B0D));
+                    },
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          child,
+                          const ColoredBox(color: Color(0x33000000)),
+                          const Center(
+                            child: SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -669,28 +761,6 @@ class _CircleButton extends StatelessWidget {
           height: 44,
           child: Icon(icon, color: Colors.white, size: 20),
         ),
-      ),
-    );
-  }
-}
-
-class _Pill extends StatelessWidget {
-  const _Pill({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xCC000000),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0x1FFFFFFF)),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(color: Colors.white, fontSize: 12),
       ),
     );
   }
