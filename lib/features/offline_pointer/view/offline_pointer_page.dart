@@ -7,7 +7,6 @@ import 'package:go_router/go_router.dart';
 import 'package:hive/hive.dart';
 import 'package:pointer_app/core/models/saved_location.dart';
 import 'package:pointer_app/core/services/location_calc_service.dart';
-import 'package:pointer_app/core/utils/l10n_ext.dart';
 import 'package:pointer_app/features/offline_pointer/widgets/compass_widget.dart';
 import 'package:rxdart/rxdart.dart';
 
@@ -89,10 +88,10 @@ class _OfflinePointerPageState extends State<OfflinePointerPage> {
       _setTarget(selected);
       return;
     }
-
-    final values = box.values.toList(growable: false);
-    if (values.isEmpty) return;
-    _setTarget(values.last);
+    if (selectedId != null && selectedId.isNotEmpty) {
+      await prefs.delete(_prefCurrentTargetId);
+    }
+    _setCompassOnly();
   }
 
   void _setTarget(SavedLocation target) {
@@ -120,16 +119,7 @@ class _OfflinePointerPageState extends State<OfflinePointerPage> {
       (pos) => (latitude: pos.latitude, longitude: pos.longitude),
     );
 
-    final headingStream =
-        FlutterCompass.events
-            ?.map((e) => e.heading)
-            .where((v) => v != null)
-            .cast<double>() ??
-        const Stream<double>.empty();
-    final compassHeadingStream = Rx.concat<double>([
-      Stream<double>.value(0.0),
-      headingStream.map((v) => v.isFinite ? v : 0.0),
-    ]).asBroadcastStream();
+    final compassHeadingStream = _compassHeadingStream();
 
     final service = LocationCalcService(
       target: target,
@@ -157,6 +147,43 @@ class _OfflinePointerPageState extends State<OfflinePointerPage> {
     });
   }
 
+  void _setCompassOnly() {
+    _sub?.cancel();
+    _sub = null;
+    _headingSub?.cancel();
+    _headingSub = null;
+    _calcService?.dispose();
+    _calcService = null;
+
+    final compassHeadingStream = _compassHeadingStream();
+    _headingSub = compassHeadingStream.listen((h) {
+      if (!mounted) return;
+      setState(() {
+        _heading = h;
+        _angle = _normalizeDegrees(-h);
+      });
+    });
+
+    setState(() {
+      _target = null;
+      _distance = double.nan;
+      _angle = _normalizeDegrees(-_heading);
+    });
+  }
+
+  Stream<double> _compassHeadingStream() {
+    final headingStream =
+        FlutterCompass.events
+            ?.map((e) => e.heading)
+            .where((v) => v != null)
+            .cast<double>() ??
+        const Stream<double>.empty();
+    return Rx.concat<double>([
+      Stream<double>.value(0.0),
+      headingStream.map((v) => v.isFinite ? v : 0.0),
+    ]).asBroadcastStream();
+  }
+
   Future<void> _addLocation() async {
     final loc = await context.push<SavedLocation>('/location-picker');
     if (!mounted) return;
@@ -170,44 +197,65 @@ class _OfflinePointerPageState extends State<OfflinePointerPage> {
   Widget build(BuildContext context) {
     final target = _target;
     if (target == null) {
+      final isVisible = ModalRoute.of(context)?.isCurrent ?? true;
+      final headingValue = ((_heading % 360) + 360) % 360;
+      final headingInt = headingValue.round() % 360;
       return _PointerScaffold(
-        title: '选择地点',
-        subtitle: '固定地点',
+        title: '指南针',
+        subtitle: '未选择目标',
         onMore: _openMoreMenu,
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.navigation, color: Colors.white, size: 46),
-                const SizedBox(height: 12),
-                Text(
-                  context.l10n.noTargetSelected,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Color(0xB3FFFFFF),
-                    fontSize: 14,
-                  ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 8, 18, 16),
+          child: Column(
+            children: [
+              const SizedBox(height: 6),
+              Text(
+                '$headingInt°',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 42,
+                  fontWeight: FontWeight.w700,
+                  height: 1.0,
+                  letterSpacing: -0.8,
                 ),
-                const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
-                  height: 44,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: Colors.black,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _cardinal(headingValue),
+                style: const TextStyle(
+                  color: Color(0xB3FFFFFF),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.2,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Expanded(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 360),
+                    child: RepaintBoundary(
+                      child: TickerMode(
+                        enabled: isVisible,
+                        child: AspectRatio(
+                          aspectRatio: 1,
+                          child: CompassWidget(angle: _angle, isOnline: true),
+                        ),
                       ),
                     ),
-                    onPressed: _addLocation,
-                    child: Text(context.l10n.addLocation),
                   ),
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                '指南针',
+                style: TextStyle(
+                  color: Color(0x99FFFFFF),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
           ),
         ),
       );
@@ -368,6 +416,13 @@ String _formatDistanceValue(double meters) {
 String _formatDistanceUnit(double meters) {
   if (!meters.isFinite) return '';
   return meters < 1000 ? 'm' : 'km';
+}
+
+double _normalizeDegrees(double degrees) {
+  if (!degrees.isFinite) return 0;
+  final normalized = degrees % 360;
+  if (normalized < 0) return normalized + 360;
+  return normalized;
 }
 
 class _PointerScaffold extends StatelessWidget {

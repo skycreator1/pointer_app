@@ -69,8 +69,8 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     }
 
     final tileProvider = FMTCTileProvider(
-      stores: const {_storeName: BrowseStoreStrategy.read},
-      loadingStrategy: BrowseLoadingStrategy.cacheOnly,
+      stores: const {_storeName: BrowseStoreStrategy.readUpdateCreate},
+      loadingStrategy: BrowseLoadingStrategy.onlineFirst,
       recordHitsAndMisses: false,
       errorHandler: (error) => _grayPngBytes,
     );
