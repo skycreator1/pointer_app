@@ -473,7 +473,19 @@ class _AmapStaticMapState extends State<_AmapStaticMap> {
                     filterQuality: FilterQuality.low,
                     gaplessPlayback: true,
                     errorBuilder: (context, error, stackTrace) {
-                      return const ColoredBox(color: Color(0xFF0B0B0D));
+                      return const ColoredBox(
+                        color: Color(0xFF0B0B0D),
+                        child: Center(
+                          child: Text(
+                            '地图加载失败',
+                            style: TextStyle(
+                              color: Color(0x99FFFFFF),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      );
                     },
                     loadingBuilder: (context, child, loadingProgress) {
                       if (loadingProgress == null) return child;

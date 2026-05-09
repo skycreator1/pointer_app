@@ -576,21 +576,24 @@ class _SocialConnectPaneState extends State<_SocialConnectPane> {
       _paired = paired;
     });
 
-    if (invite == null) {
-      await _refreshInvite();
+    if (invite == null || isCodeExpired(invite)) {
+      await _refreshInvite(mode: InviteCodeRefreshMode.daily);
     }
   }
 
-  Future<void> _refreshInvite() async {
+  Future<void> _refreshInvite({InviteCodeRefreshMode? mode}) async {
     final prefs = await _openPrefsBox();
     final myUserId = await _getOrCreateMyUserId(prefs);
 
     final now = DateTime.now();
-    final expiresAt = _endOfDay(now);
-    final code = generateCode(myUserId, InviteCodeRefreshMode.daily);
+    final resolvedMode = mode ?? InviteCodeRefreshMode.onDemand;
+    final expiresAt = resolvedMode == InviteCodeRefreshMode.daily
+        ? _endOfDay(now)
+        : now.add(const Duration(days: 3650));
+    final code = generateCode(myUserId, resolvedMode);
     final invite = InviteCode(
       code: code,
-      refreshMode: InviteCodeRefreshMode.daily,
+      refreshMode: resolvedMode,
       generatedAt: now,
       expiresAt: expiresAt,
     );
