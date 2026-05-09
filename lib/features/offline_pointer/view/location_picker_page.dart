@@ -32,8 +32,10 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
 
   final MapController _mapController = MapController();
   final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _searchController = TextEditingController();
 
   Timer? _idleDebounce;
+  Timer? _searchDebounce;
   StreamSubscription<DownloadProgress>? _downloadProgressSub;
 
   FMTCTileProvider? _tileProvider;
@@ -44,13 +46,16 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   String? _address;
   bool _geocoding = false;
   bool _downloading = false;
+  bool _searching = false;
   int _tileReloadKey = 0;
   DateTime _lastCacheStart = DateTime.fromMillisecondsSinceEpoch(0);
+  List<_AmapTip> _tips = const [];
 
   @override
   void initState() {
     super.initState();
     _initialise();
+    _searchController.addListener(_onSearchTextChanged);
   }
 
   Future<void> _initialise() async {
@@ -81,6 +86,8 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   void dispose() {
     _idleDebounce?.cancel();
     _idleDebounce = null;
+    _searchDebounce?.cancel();
+    _searchDebounce = null;
     _downloadProgressSub?.cancel();
     _downloadProgressSub = null;
 
@@ -91,6 +98,7 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     }
 
     _nameController.dispose();
+    _searchController.dispose();
     _mapController.dispose();
     super.dispose();
   }
@@ -117,7 +125,6 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                       initialCenter: _selected,
                       initialZoom: 14,
                       onPositionChanged: (camera, hasGesture) {
-                        if (hasGesture) return;
                         _onMapIdle(camera.center);
                       },
                     ),
@@ -137,6 +144,23 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                       child: Icon(Icons.add, color: Colors.white, size: 28),
                     ),
                   ),
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    top: 16,
+                    child: _SearchBar(
+                      controller: _searchController,
+                      searching: _searching,
+                      onClear: _clearSearch,
+                    ),
+                  ),
+                  if (_tips.isNotEmpty)
+                    Positioned(
+                      left: 16,
+                      right: 16,
+                      top: 74,
+                      child: _TipsPanel(tips: _tips, onSelect: _selectTip),
+                    ),
                   Positioned(
                     right: 16,
                     bottom: 16,
@@ -175,6 +199,57 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
         ),
       ),
     );
+  }
+
+  void _onSearchTextChanged() {
+    final text = _searchController.text.trim();
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
+      if (text.isEmpty) {
+        setState(() => _tips = const []);
+        return;
+      }
+      unawaited(_searchTips(text));
+    });
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() => _tips = const []);
+  }
+
+  Future<void> _searchTips(String keywords) async {
+    if (_searching) return;
+    setState(() => _searching = true);
+    try {
+      final center = _mapController.camera.center;
+      final tips = await _amapInputTips(
+        key: widget.amapKey,
+        keywords: keywords,
+        locationBias: center,
+      );
+      if (!mounted) return;
+      setState(() => _tips = tips);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _tips = const []);
+    } finally {
+      if (mounted) setState(() => _searching = false);
+    }
+  }
+
+  void _selectTip(_AmapTip tip) {
+    setState(() {
+      _tips = const [];
+      _selected = tip.location;
+      _address = tip.address?.isEmpty ?? true ? tip.name : tip.address;
+      if (_nameController.text.trim().isEmpty) {
+        _nameController.text = tip.name;
+      }
+    });
+    _mapController.move(tip.location, _mapController.camera.zoom);
+    _onMapIdle(tip.location);
   }
 
   void _onMapIdle(LatLng center) {
@@ -340,6 +415,61 @@ Future<String?> _amapReverseGeocode({
   }
 }
 
+final class _AmapTip {
+  const _AmapTip({required this.name, required this.location, this.address});
+
+  final String name;
+  final LatLng location;
+  final String? address;
+}
+
+Future<List<_AmapTip>> _amapInputTips({
+  required String key,
+  required String keywords,
+  required LatLng locationBias,
+}) async {
+  final uri =
+      Uri.https('restapi.amap.com', '/v3/assistant/inputtips', <String, String>{
+        'key': key,
+        'keywords': keywords,
+        'location': '${locationBias.longitude},${locationBias.latitude}',
+        'datatype': 'all',
+        'output': 'JSON',
+      });
+
+  final client = HttpClient();
+  try {
+    final req = await client.getUrl(uri);
+    final resp = await req.close();
+    final body = await resp.transform(utf8.decoder).join();
+    final decoded = jsonDecode(body);
+    if (decoded is! Map) return const [];
+    if (decoded['status']?.toString() != '1') return const [];
+    final tips = decoded['tips'];
+    if (tips is! List) return const [];
+
+    final out = <_AmapTip>[];
+    for (final item in tips) {
+      if (item is! Map) continue;
+      final name = item['name']?.toString();
+      final location = item['location']?.toString();
+      if (name == null || name.isEmpty) continue;
+      if (location == null || location.isEmpty) continue;
+      final parts = location.split(',');
+      if (parts.length != 2) continue;
+      final lon = double.tryParse(parts[0]);
+      final lat = double.tryParse(parts[1]);
+      if (lat == null || lon == null) continue;
+      final addr = item['address']?.toString();
+      out.add(_AmapTip(name: name, location: LatLng(lat, lon), address: addr));
+      if (out.length >= 8) break;
+    }
+    return out;
+  } finally {
+    client.close(force: true);
+  }
+}
+
 class _BottomPanel extends StatelessWidget {
   const _BottomPanel({
     required this.address,
@@ -411,6 +541,117 @@ class _BottomPanel extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SearchBar extends StatelessWidget {
+  const _SearchBar({
+    required this.controller,
+    required this.searching,
+    required this.onClear,
+  });
+
+  final TextEditingController controller;
+  final bool searching;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasText = controller.text.trim().isNotEmpty;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: const Color(0xE60B0B0D),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0x1FFFFFFF)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.search, color: Color(0xB3FFFFFF), size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              style: const TextStyle(color: Colors.white, fontSize: 14),
+              decoration: const InputDecoration(
+                hintText: '搜索地点（高德）',
+                hintStyle: TextStyle(color: Color(0x66FFFFFF)),
+                isDense: true,
+                border: InputBorder.none,
+              ),
+            ),
+          ),
+          if (searching)
+            const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            )
+          else if (hasText)
+            IconButton(
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+              onPressed: onClear,
+              icon: const Icon(Icons.close, color: Color(0xB3FFFFFF), size: 18),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TipsPanel extends StatelessWidget {
+  const _TipsPanel({required this.tips, required this.onSelect});
+
+  final List<_AmapTip> tips;
+  final void Function(_AmapTip tip) onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xE60B0B0D),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0x1FFFFFFF)),
+        ),
+        child: ListView.separated(
+          shrinkWrap: true,
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          itemCount: tips.length,
+          separatorBuilder: (context, index) =>
+              const Divider(height: 1, color: Color(0x1FFFFFFF)),
+          itemBuilder: (context, index) {
+            final t = tips[index];
+            return ListTile(
+              dense: true,
+              title: Text(
+                t.name,
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: t.address == null || t.address!.isEmpty
+                  ? null
+                  : Text(
+                      t.address!,
+                      style: const TextStyle(
+                        color: Color(0x99FFFFFF),
+                        fontSize: 12,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+              onTap: () => onSelect(t),
+            );
+          },
+        ),
       ),
     );
   }
