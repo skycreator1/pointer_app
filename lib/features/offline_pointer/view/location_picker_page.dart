@@ -38,7 +38,6 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   Timer? _searchDebounce;
   StreamSubscription<DownloadProgress>? _downloadProgressSub;
 
-  FMTCTileProvider? _tileProvider;
   FMTCStore? _store;
   Object? _downloadInstanceId;
 
@@ -69,17 +68,9 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
       await store.manage.create();
     }
 
-    final tileProvider = FMTCTileProvider(
-      stores: const {_storeName: BrowseStoreStrategy.readUpdateCreate},
-      loadingStrategy: BrowseLoadingStrategy.onlineFirst,
-      recordHitsAndMisses: false,
-      errorHandler: (error) => _grayPngBytes,
-    );
-
     if (!mounted) return;
     setState(() {
       _store = store;
-      _tileProvider = tileProvider;
     });
   }
 
@@ -106,7 +97,7 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
 
   @override
   Widget build(BuildContext context) {
-    final tileProvider = _tileProvider ?? NetworkTileProvider();
+    final tileProvider = NetworkTileProvider();
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(

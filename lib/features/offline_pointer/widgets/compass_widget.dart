@@ -58,8 +58,10 @@ class _CompassWidgetState extends State<CompassWidget> {
     final targetDialRotation = widget.isOnline
         ? widget.dialRotation
         : _frozenDialRotation;
-    final endDialRotation =
-        _shortestEndAngle(from: _latestDialRotation, to: targetDialRotation);
+    final endDialRotation = _shortestEndAngle(
+      from: _latestDialRotation,
+      to: targetDialRotation,
+    );
 
     final duration = widget.isOnline
         ? const Duration(milliseconds: 420)
@@ -68,6 +70,7 @@ class _CompassWidgetState extends State<CompassWidget> {
     return Stack(
       fit: StackFit.expand,
       children: [
+        const ColoredBox(color: Colors.black),
         TweenAnimationBuilder<double>(
           tween: Tween<double>(end: endDialRotation),
           duration: duration,
@@ -115,21 +118,23 @@ class _CompassWidgetState extends State<CompassWidget> {
           },
         ),
         if (widget.showOverlay)
-          IgnorePointer(
-            child: DecoratedBox(
-              decoration: const BoxDecoration(
-                gradient: RadialGradient(
-                  center: Alignment(-0.15, -0.4),
-                  radius: 1.1,
-                  colors: [
-                    Color(0x22FFFFFF),
-                    Color(0x0AFFFFFF),
-                    Color(0x00111111),
-                  ],
-                  stops: [0.0, 0.55, 1.0],
+          ClipOval(
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: const BoxDecoration(
+                  gradient: RadialGradient(
+                    center: Alignment(-0.15, -0.4),
+                    radius: 1.1,
+                    colors: [
+                      Color(0x22FFFFFF),
+                      Color(0x0AFFFFFF),
+                      Color(0x00111111),
+                    ],
+                    stops: [0.0, 0.55, 1.0],
+                  ),
                 ),
+                child: const SizedBox.expand(),
               ),
-              child: const SizedBox.expand(),
             ),
           ),
         if (widget.showTopIndicator)
