@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:pointer_app/app_router.dart';
 import 'package:pointer_app/core/services/background_service.dart';
@@ -22,8 +23,31 @@ Future<void> main() async {
 }
 
 Future<void> _startServices() async {
+  final prefs = await Hive.openBox('app_prefs');
+  final backgroundEnabledValue = prefs.get('backgroundEnabled');
+  final backgroundEnabled = backgroundEnabledValue is bool
+      ? backgroundEnabledValue
+      : true;
+  if (backgroundEnabledValue == null) {
+    await prefs.put('backgroundEnabled', backgroundEnabled);
+  }
+
   try {
-    await initBackgroundService();
+    if (backgroundEnabled) {
+      await initBackgroundService();
+      final serverUriString = prefs.get('serverUri')?.toString();
+      final myUserId = prefs.get('myUserId')?.toString();
+      if (serverUriString != null &&
+          serverUriString.isNotEmpty &&
+          myUserId != null &&
+          myUserId.isNotEmpty) {
+        final service = FlutterBackgroundService();
+        service.invoke('configure', <String, dynamic>{
+          'serverUri': serverUriString,
+          'myUserId': myUserId,
+        });
+      }
+    }
   } catch (_) {}
 
   try {
