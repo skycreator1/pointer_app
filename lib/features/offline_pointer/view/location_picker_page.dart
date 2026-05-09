@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hive/hive.dart';
@@ -20,6 +21,13 @@ class LocationPickerPage extends StatefulWidget {
 }
 
 class _LocationPickerPageState extends State<LocationPickerPage> {
+  static const _tileSubdomains = <String>['1', '2', '3', '4'];
+
+  static final Uint8List _grayPngBytes = base64Decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/Upm3XQAAAAASUVORK5CYII=',
+  );
+
+  final MapController _mapController = MapController();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
 
@@ -28,15 +36,24 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
 
   LatLng _selected = const LatLng(39.9, 116.4);
   double _zoom = 14;
+  LatLng _pendingCenter = const LatLng(39.9, 116.4);
+  double _pendingZoom = 14;
   String? _address;
   bool _geocoding = false;
   bool _searching = false;
+  bool _snapping = false;
   List<_AmapTip> _tips = const [];
 
   @override
   void initState() {
     super.initState();
+    _pendingCenter = _selected;
+    _pendingZoom = _zoom;
     _searchController.addListener(_onSearchTextChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _onMapIdle(_selected);
+    });
   }
 
   @override
@@ -48,11 +65,13 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
 
     _nameController.dispose();
     _searchController.dispose();
+    _mapController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final tileProvider = NetworkTileProvider();
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -66,17 +85,35 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
             Expanded(
               child: Stack(
                 children: [
-                  _AmapStaticMap(
-                    amapKey: widget.amapKey,
-                    center: _selected,
-                    zoom: _zoom,
-                    onCameraChanged: (center, zoom) {
-                      setState(() {
-                        _selected = center;
-                        _zoom = zoom;
-                      });
-                      _onMapIdle(center);
-                    },
+                  Listener(
+                    onPointerUp: (_) => _onMapIdle(_pendingCenter),
+                    onPointerCancel: (_) => _onMapIdle(_pendingCenter),
+                    child: FlutterMap(
+                      mapController: _mapController,
+                      options: MapOptions(
+                        initialCenter: _selected,
+                        initialZoom: _zoom,
+                        interactionOptions: const InteractionOptions(
+                          flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+                        ),
+                        onPositionChanged: (camera, hasGesture) {
+                          _pendingCenter = camera.center;
+                          _pendingZoom = camera.zoom;
+                          if (!hasGesture && !_snapping) {
+                            _onMapIdle(camera.center);
+                          }
+                        },
+                      ),
+                      children: [
+                        TileLayer(
+                          urlTemplate: _amapUrlTemplate(widget.amapKey),
+                          subdomains: _tileSubdomains,
+                          tileProvider: tileProvider,
+                          userAgentPackageName: 'com.example.pointer_app',
+                          errorImage: MemoryImage(_grayPngBytes),
+                        ),
+                      ],
+                    ),
                   ),
                   const IgnorePointer(
                     child: Center(
@@ -154,7 +191,7 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
       final tips = await _amapInputTips(
         key: widget.amapKey,
         keywords: keywords,
-        locationBias: _selected,
+        locationBias: _pendingCenter,
       );
       if (!mounted) return;
       setState(() => _tips = tips);
@@ -175,14 +212,20 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
         _nameController.text = tip.name;
       }
     });
+    _pendingCenter = tip.location;
+    _mapController.move(tip.location, _mapController.camera.zoom);
     _onMapIdle(tip.location);
   }
 
   void _onMapIdle(LatLng center) {
     _idleDebounce?.cancel();
-    _idleDebounce = Timer(const Duration(milliseconds: 550), () {
+    _idleDebounce = Timer(const Duration(milliseconds: 350), () {
       if (!mounted) return;
-      unawaited(_reverseGeocode(center));
+      setState(() {
+        _selected = center;
+        _zoom = _pendingZoom;
+      });
+      unawaited(_reverseGeocodeAndMaybeSnap(center));
     });
   }
 
@@ -190,22 +233,45 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     try {
       final pos = await Geolocator.getCurrentPosition();
       final center = LatLng(pos.latitude, pos.longitude);
+      _pendingCenter = center;
+      _mapController.move(center, _mapController.camera.zoom);
       setState(() => _selected = center);
       _onMapIdle(center);
     } catch (_) {}
   }
 
-  Future<void> _reverseGeocode(LatLng p) async {
+  Future<void> _reverseGeocodeAndMaybeSnap(LatLng p) async {
     if (_geocoding) return;
     setState(() => _geocoding = true);
     try {
-      final addr = await _amapReverseGeocode(
+      final result = await _amapReverseGeocodeDetailed(
         key: widget.amapKey,
         latitude: p.latitude,
         longitude: p.longitude,
       );
       if (!mounted) return;
-      setState(() => _address = addr);
+      final best = result?.bestPoi;
+      if (best != null && best.distanceMeters <= 35) {
+        if (!_snapping) {
+          _snapping = true;
+          _pendingCenter = best.location;
+          _mapController.move(best.location, _mapController.camera.zoom);
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+          _snapping = false;
+        }
+
+        setState(() {
+          _selected = best.location;
+          _address = best.address?.isEmpty ?? true
+              ? best.name
+              : '${best.name} · ${best.address}';
+          if (_nameController.text.trim().isEmpty) {
+            _nameController.text = best.name;
+          }
+        });
+      } else {
+        setState(() => _address = result?.formattedAddress);
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() => _address = null);
@@ -235,31 +301,35 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   }
 }
 
-Uri _amapStaticMapUri({
-  required String key,
-  required LatLng center,
-  required int zoom,
-  required int width,
-  required int height,
-  int scale = 1,
-  int traffic = 0,
-}) {
-  final z = zoom.clamp(1, 17);
-  final w = width.clamp(1, 1024);
-  final h = height.clamp(1, 1024);
-  final lon = center.longitude.toStringAsFixed(6);
-  final lat = center.latitude.toStringAsFixed(6);
-  return Uri.https('restapi.amap.com', '/v3/staticmap', <String, String>{
-    'key': key,
-    'location': '$lon,$lat',
-    'zoom': '$z',
-    'size': '$w*$h',
-    'scale': '${scale.clamp(1, 2)}',
-    'traffic': '${traffic.clamp(0, 1)}',
-  });
+String _amapUrlTemplate(String key) {
+  return 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}&key=$key';
 }
 
-Future<String?> _amapReverseGeocode({
+final class _AmapPoi {
+  const _AmapPoi({
+    required this.name,
+    required this.location,
+    required this.distanceMeters,
+    this.address,
+  });
+
+  final String name;
+  final LatLng location;
+  final double distanceMeters;
+  final String? address;
+}
+
+final class _AmapRegeoResult {
+  const _AmapRegeoResult({
+    required this.formattedAddress,
+    required this.bestPoi,
+  });
+
+  final String? formattedAddress;
+  final _AmapPoi? bestPoi;
+}
+
+Future<_AmapRegeoResult?> _amapReverseGeocodeDetailed({
   required String key,
   required double latitude,
   required double longitude,
@@ -269,7 +339,7 @@ Future<String?> _amapReverseGeocode({
         'key': key,
         'location': '$longitude,$latitude',
         'radius': '50',
-        'extensions': 'base',
+        'extensions': 'all',
         'output': 'JSON',
       });
 
@@ -283,232 +353,48 @@ Future<String?> _amapReverseGeocode({
     if (decoded['status']?.toString() != '1') return null;
     final regeocode = decoded['regeocode'];
     if (regeocode is! Map) return null;
+
     final formatted = regeocode['formatted_address']?.toString();
-    return formatted?.isEmpty ?? true ? null : formatted;
+
+    _AmapPoi? bestPoi;
+    final pois = regeocode['pois'];
+    if (pois is List) {
+      for (final item in pois) {
+        if (item is! Map) continue;
+        final name = item['name']?.toString();
+        final location = item['location']?.toString();
+        if (name == null || name.isEmpty) continue;
+        if (location == null || location.isEmpty) continue;
+        final parts = location.split(',');
+        if (parts.length != 2) continue;
+        final lon = double.tryParse(parts[0]);
+        final lat = double.tryParse(parts[1]);
+        if (lat == null || lon == null) continue;
+
+        final distRaw = item['distance'];
+        final dist = distRaw is num ? distRaw.toDouble() : double.nan;
+        if (!dist.isFinite) continue;
+
+        final addr = item['address']?.toString();
+        final candidate = _AmapPoi(
+          name: name,
+          location: LatLng(lat, lon),
+          distanceMeters: dist,
+          address: addr,
+        );
+        if (bestPoi == null ||
+            candidate.distanceMeters < bestPoi.distanceMeters) {
+          bestPoi = candidate;
+        }
+      }
+    }
+
+    return _AmapRegeoResult(
+      formattedAddress: formatted?.isEmpty ?? true ? null : formatted,
+      bestPoi: bestPoi,
+    );
   } finally {
     client.close(force: true);
-  }
-}
-
-class _AmapStaticMap extends StatefulWidget {
-  const _AmapStaticMap({
-    required this.amapKey,
-    required this.center,
-    required this.zoom,
-    required this.onCameraChanged,
-  });
-
-  final String amapKey;
-  final LatLng center;
-  final double zoom;
-  final void Function(LatLng center, double zoom) onCameraChanged;
-
-  @override
-  State<_AmapStaticMap> createState() => _AmapStaticMapState();
-}
-
-class _AmapStaticMapState extends State<_AmapStaticMap> {
-  static const _ln2 = 0.6931471805599453;
-  static double _sinh(double x) => (math.exp(x) - math.exp(-x)) / 2.0;
-
-  LatLng _center = const LatLng(39.9, 116.4);
-  double _zoom = 14;
-
-  Timer? _imageDebounce;
-  String _imageUrl = '';
-
-  LatLng? _gestureStartCenter;
-  double? _gestureStartZoom;
-  Offset? _gestureStartFocal;
-
-  @override
-  void initState() {
-    super.initState();
-    _center = widget.center;
-    _zoom = widget.zoom;
-  }
-
-  @override
-  void didUpdateWidget(covariant _AmapStaticMap oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.center != widget.center) {
-      _center = widget.center;
-    }
-    if (oldWidget.zoom != widget.zoom) {
-      _zoom = widget.zoom;
-    }
-  }
-
-  @override
-  void dispose() {
-    _imageDebounce?.cancel();
-    _imageDebounce = null;
-    super.dispose();
-  }
-
-  void _scheduleImageRefresh({
-    required Size size,
-    Duration delay = const Duration(milliseconds: 120),
-  }) {
-    _imageDebounce?.cancel();
-    _imageDebounce = Timer(delay, () {
-      if (!mounted) return;
-      final w = size.width.isFinite ? size.width.round() : 0;
-      final h = size.height.isFinite ? size.height.round() : 0;
-      if (w <= 0 || h <= 0) return;
-
-      final uri = _amapStaticMapUri(
-        key: widget.amapKey,
-        center: _center,
-        zoom: _zoom.round(),
-        width: w,
-        height: h,
-      );
-      setState(() => _imageUrl = uri.toString());
-    });
-  }
-
-  void _onScaleStart(ScaleStartDetails details) {
-    _gestureStartCenter = _center;
-    _gestureStartZoom = _zoom;
-    _gestureStartFocal = details.focalPoint;
-  }
-
-  void _onScaleUpdate(ScaleUpdateDetails details, Size size) {
-    final startCenter = _gestureStartCenter;
-    final startZoom = _gestureStartZoom;
-    final startFocal = _gestureStartFocal;
-    if (startCenter == null || startZoom == null || startFocal == null) return;
-
-    final scale = details.scale.isFinite ? details.scale : 1.0;
-    final zoomDelta = math.log(scale) / _ln2;
-    final nextZoom = (startZoom + zoomDelta).clamp(1.0, 17.0);
-    final nextZoomInt = nextZoom.round().clamp(1, 17);
-
-    final delta = details.focalPoint - startFocal;
-    final nextCenter = _panTo(
-      startCenter: startCenter,
-      deltaPx: delta,
-      zoom: nextZoomInt,
-    );
-
-    _center = nextCenter;
-    _zoom = nextZoom;
-    widget.onCameraChanged(nextCenter, nextZoom);
-    _scheduleImageRefresh(size: size);
-  }
-
-  void _onScaleEnd(ScaleEndDetails details, Size size) {
-    _gestureStartCenter = null;
-    _gestureStartZoom = null;
-    _gestureStartFocal = null;
-    _scheduleImageRefresh(size: size, delay: const Duration(milliseconds: 40));
-  }
-
-  LatLng _panTo({
-    required LatLng startCenter,
-    required Offset deltaPx,
-    required int zoom,
-  }) {
-    final start = _toWorldPixel(startCenter, zoom);
-    final next = Offset(start.dx - deltaPx.dx, start.dy - deltaPx.dy);
-    return _fromWorldPixel(next, zoom);
-  }
-
-  Offset _toWorldPixel(LatLng p, int zoom) {
-    final z = zoom.clamp(1, 17);
-    final worldSize = 256.0 * math.pow(2.0, z);
-    final lat = p.latitude.clamp(-85.05112878, 85.05112878);
-    final lon = p.longitude;
-
-    final x = (lon + 180.0) / 360.0 * worldSize;
-    final latRad = lat * math.pi / 180.0;
-    final y =
-        (1.0 - math.log(math.tan(latRad) + (1 / math.cos(latRad))) / math.pi) /
-        2.0 *
-        worldSize;
-    return Offset(x, y);
-  }
-
-  LatLng _fromWorldPixel(Offset px, int zoom) {
-    final z = zoom.clamp(1, 17);
-    final worldSize = 256.0 * math.pow(2.0, z);
-    final x = px.dx.clamp(0.0, worldSize);
-    final y = px.dy.clamp(0.0, worldSize);
-
-    final lon = x / worldSize * 360.0 - 180.0;
-    final n = math.pi - 2.0 * math.pi * y / worldSize;
-    final lat = 180.0 / math.pi * math.atan(_sinh(n));
-    return LatLng(lat, lon);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final size = constraints.biggest;
-        if (_imageUrl.isEmpty && size.width > 0 && size.height > 0) {
-          final uri = _amapStaticMapUri(
-            key: widget.amapKey,
-            center: _center,
-            zoom: _zoom.round(),
-            width: size.width.round(),
-            height: size.height.round(),
-          );
-          _imageUrl = uri.toString();
-        }
-
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onScaleStart: _onScaleStart,
-          onScaleUpdate: (d) => _onScaleUpdate(d, size),
-          onScaleEnd: (d) => _onScaleEnd(d, size),
-          child: DecoratedBox(
-            decoration: const BoxDecoration(color: Color(0xFF0B0B0D)),
-            child: _imageUrl.isEmpty
-                ? const SizedBox.expand()
-                : Image.network(
-                    _imageUrl,
-                    fit: BoxFit.cover,
-                    filterQuality: FilterQuality.low,
-                    gaplessPlayback: true,
-                    errorBuilder: (context, error, stackTrace) {
-                      return const ColoredBox(
-                        color: Color(0xFF0B0B0D),
-                        child: Center(
-                          child: Text(
-                            '地图加载失败',
-                            style: TextStyle(
-                              color: Color(0x99FFFFFF),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                    loadingBuilder: (context, child, loadingProgress) {
-                      if (loadingProgress == null) return child;
-                      return Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          child,
-                          const ColoredBox(color: Color(0x33000000)),
-                          const Center(
-                            child: SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-          ),
-        );
-      },
-    );
   }
 }
 
