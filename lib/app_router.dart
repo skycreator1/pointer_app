@@ -55,7 +55,7 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/location-picker',
       builder: (context, state) =>
-          const LocationPickerPage(amapKey: '5e7d9c70381f2465d505ff9f0ce8129f'),
+          const LocationPickerPage(amapKey: 'bfc214ef010237257a892c500fe0ffe2'),
     ),
   ],
 );
