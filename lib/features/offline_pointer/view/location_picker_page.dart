@@ -38,6 +38,9 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   double _zoom = 14;
   LatLng _pendingCenter = const LatLng(39.9, 116.4);
   double _pendingZoom = 14;
+  _AmapPoi? _lockedPoi;
+  bool _nameEdited = false;
+  bool _updatingName = false;
   String? _address;
   bool _geocoding = false;
   bool _searching = false;
@@ -50,6 +53,10 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     _pendingCenter = _selected;
     _pendingZoom = _zoom;
     _searchController.addListener(_onSearchTextChanged);
+    _nameController.addListener(() {
+      if (_updatingName) return;
+      _nameEdited = true;
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _onMapIdle(_selected);
@@ -72,6 +79,7 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   @override
   Widget build(BuildContext context) {
     final tileProvider = NetworkTileProvider();
+    final lockedPoi = _lockedPoi;
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -96,6 +104,14 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                         interactionOptions: const InteractionOptions(
                           flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
                         ),
+                        onTap: (tapPosition, point) {
+                          _pendingCenter = point;
+                          _mapController.move(
+                            point,
+                            _mapController.camera.zoom,
+                          );
+                          _onMapIdle(point, preferSnap: true);
+                        },
                         onPositionChanged: (camera, hasGesture) {
                           _pendingCenter = camera.center;
                           _pendingZoom = camera.zoom;
@@ -111,6 +127,17 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                           tileProvider: tileProvider,
                           userAgentPackageName: 'com.example.pointer_app',
                           errorImage: MemoryImage(_grayPngBytes),
+                        ),
+                        MarkerLayer(
+                          markers: [
+                            Marker(
+                              point: lockedPoi?.location ?? _selected,
+                              width: 200,
+                              height: 90,
+                              alignment: Alignment.topCenter,
+                              child: _MapPin(title: lockedPoi?.name),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -158,6 +185,7 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
               geocoding: _geocoding,
               selected: _selected,
               nameController: _nameController,
+              nameHint: _lockedPoi?.name,
               onSave: _save,
             ),
           ],
@@ -209,15 +237,21 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
       _selected = tip.location;
       _address = tip.address?.isEmpty ?? true ? tip.name : tip.address;
       if (_nameController.text.trim().isEmpty) {
-        _nameController.text = tip.name;
+        _setNameIfNotEdited(tip.name);
       }
     });
+    _lockedPoi = _AmapPoi(
+      name: tip.name,
+      location: tip.location,
+      distanceMeters: 0,
+      address: tip.address,
+    );
     _pendingCenter = tip.location;
     _mapController.move(tip.location, _mapController.camera.zoom);
-    _onMapIdle(tip.location);
+    _onMapIdle(tip.location, preferSnap: true);
   }
 
-  void _onMapIdle(LatLng center) {
+  void _onMapIdle(LatLng center, {bool preferSnap = false}) {
     _idleDebounce?.cancel();
     _idleDebounce = Timer(const Duration(milliseconds: 350), () {
       if (!mounted) return;
@@ -225,7 +259,7 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
         _selected = center;
         _zoom = _pendingZoom;
       });
-      unawaited(_reverseGeocodeAndMaybeSnap(center));
+      unawaited(_reverseGeocodeAndMaybeSnap(center, preferSnap: preferSnap));
     });
   }
 
@@ -240,7 +274,10 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     } catch (_) {}
   }
 
-  Future<void> _reverseGeocodeAndMaybeSnap(LatLng p) async {
+  Future<void> _reverseGeocodeAndMaybeSnap(
+    LatLng p, {
+    required bool preferSnap,
+  }) async {
     if (_geocoding) return;
     setState(() => _geocoding = true);
     try {
@@ -251,27 +288,16 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
       );
       if (!mounted) return;
       final best = result?.bestPoi;
-      if (best != null && best.distanceMeters <= 35) {
-        if (!_snapping) {
-          _snapping = true;
-          _pendingCenter = best.location;
-          _mapController.move(best.location, _mapController.camera.zoom);
-          await Future<void>.delayed(const Duration(milliseconds: 250));
-          _snapping = false;
-        }
-
-        setState(() {
-          _selected = best.location;
-          _address = best.address?.isEmpty ?? true
-              ? best.name
-              : '${best.name} · ${best.address}';
-          if (_nameController.text.trim().isEmpty) {
-            _nameController.text = best.name;
-          }
-        });
-      } else {
-        setState(() => _address = result?.formattedAddress);
+      final snapThreshold = preferSnap ? 120.0 : 35.0;
+      if (best != null && best.distanceMeters <= snapThreshold) {
+        await _snapToPoi(best);
+        return;
       }
+
+      setState(() {
+        _lockedPoi = null;
+        _address = result?.formattedAddress;
+      });
     } catch (_) {
       if (!mounted) return;
       setState(() => _address = null);
@@ -282,8 +308,44 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     }
   }
 
+  Future<void> _snapToPoi(_AmapPoi poi) async {
+    if (_snapping) return;
+    _snapping = true;
+    _pendingCenter = poi.location;
+    _mapController.move(poi.location, _mapController.camera.zoom);
+    await Future<void>.delayed(const Duration(milliseconds: 180));
+    if (!mounted) return;
+    setState(() {
+      _lockedPoi = poi;
+      _selected = poi.location;
+      _address = poi.address?.isEmpty ?? true
+          ? poi.name
+          : '${poi.name} · ${poi.address}';
+    });
+    _setNameIfNotEdited(poi.name);
+    _snapping = false;
+  }
+
+  void _setNameIfNotEdited(String value) {
+    if (_nameEdited) return;
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return;
+    _updatingName = true;
+    _nameController.text = trimmed;
+    _nameController.selection = TextSelection.collapsed(
+      offset: _nameController.text.length,
+    );
+    _updatingName = false;
+  }
+
   Future<void> _save() async {
-    final name = _nameController.text.trim();
+    final typedName = _nameController.text.trim();
+    final autoName = _lockedPoi?.name.trim() ?? '';
+    final name = typedName.isNotEmpty
+        ? typedName
+        : (autoName.isNotEmpty
+              ? autoName
+              : '${_selected.latitude.toStringAsFixed(6)},${_selected.longitude.toStringAsFixed(6)}');
     if (name.isEmpty) return;
 
     final box = await Hive.openBox<SavedLocation>('saved_locations');
@@ -338,7 +400,7 @@ Future<_AmapRegeoResult?> _amapReverseGeocodeDetailed({
       Uri.https('restapi.amap.com', '/v3/geocode/regeo', <String, String>{
         'key': key,
         'location': '$longitude,$latitude',
-        'radius': '50',
+        'radius': '200',
         'extensions': 'all',
         'output': 'JSON',
       });
@@ -459,6 +521,7 @@ class _BottomPanel extends StatelessWidget {
     required this.geocoding,
     required this.selected,
     required this.nameController,
+    required this.nameHint,
     required this.onSave,
   });
 
@@ -466,6 +529,7 @@ class _BottomPanel extends StatelessWidget {
   final bool geocoding;
   final LatLng selected;
   final TextEditingController nameController;
+  final String? nameHint;
   final VoidCallback onSave;
 
   @override
@@ -495,7 +559,9 @@ class _BottomPanel extends StatelessWidget {
             controller: nameController,
             style: const TextStyle(color: Colors.white),
             decoration: InputDecoration(
-              hintText: '地点名称',
+              hintText: nameHint == null || nameHint!.trim().isEmpty
+                  ? '地点名称（可选）'
+                  : nameHint,
               hintStyle: const TextStyle(color: Color(0x77FFFFFF)),
               enabledBorder: OutlineInputBorder(
                 borderSide: const BorderSide(color: Color(0xFF2A2A2E)),
@@ -659,6 +725,45 @@ class _CircleButton extends StatelessWidget {
           height: 44,
           child: Icon(icon, color: Colors.white, size: 20),
         ),
+      ),
+    );
+  }
+}
+
+class _MapPin extends StatelessWidget {
+  const _MapPin({required this.title});
+
+  final String? title;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = title?.trim() ?? '';
+    return IgnorePointer(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (text.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xE6000000),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: const Color(0x1FFFFFFF)),
+              ),
+              child: Text(
+                text,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          const SizedBox(height: 6),
+          const Icon(Icons.place, color: Color(0xFFE11D48), size: 28),
+        ],
       ),
     );
   }

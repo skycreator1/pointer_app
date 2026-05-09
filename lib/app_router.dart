@@ -285,6 +285,7 @@ class _FixedPlacesPaneState extends State<_FixedPlacesPane> {
                       ),
                 selected: _currentTargetId == p.id,
                 onTap: () => _selectPlace(p),
+                onDelete: () => _deletePlace(p),
               ),
             ),
             const SizedBox(height: 12),
@@ -351,6 +352,79 @@ class _FixedPlacesPaneState extends State<_FixedPlacesPane> {
           .toList(growable: false);
     });
   }
+
+  Future<void> _deletePlace(SavedLocation p) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: const Color(0xFF0F1117),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.delete_outline, color: Colors.red),
+                  title: const Text(
+                    '删除该地点',
+                    style: TextStyle(color: Colors.red),
+                  ),
+                  onTap: () => Navigator.of(context).pop('delete'),
+                ),
+                const SizedBox(height: 8),
+                ListTile(
+                  leading: const Icon(Icons.close, color: Color(0xCCFFFFFF)),
+                  title: const Text(
+                    '取消',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  onTap: () => Navigator.of(context).pop('cancel'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (action != 'delete') return;
+
+    final box = await Hive.openBox<SavedLocation>('saved_locations');
+    if (box.containsKey(p.id)) {
+      await box.delete(p.id);
+    } else {
+      dynamic foundKey;
+      for (final entry in box.toMap().entries) {
+        final v = entry.value;
+        if (v.id == p.id) {
+          foundKey = entry.key;
+          break;
+        }
+      }
+      if (foundKey != null) {
+        await box.delete(foundKey);
+      }
+    }
+
+    if (_currentTargetId == p.id) {
+      final prefs = await _openPrefsBox();
+      await prefs.delete(_prefCurrentTargetId);
+      if (mounted) setState(() => _currentTargetId = null);
+    }
+
+    await _refreshPlaces();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('已删除地点：${p.name}'),
+        backgroundColor: const Color(0xFF1C1C1E),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
 }
 
 class _PlaceRow extends StatelessWidget {
@@ -359,12 +433,14 @@ class _PlaceRow extends StatelessWidget {
     required this.distanceMeters,
     required this.selected,
     required this.onTap,
+    required this.onDelete,
   });
 
   final SavedLocation place;
   final double? distanceMeters;
   final bool selected;
   final VoidCallback onTap;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -429,7 +505,14 @@ class _PlaceRow extends StatelessWidget {
                     ],
                   ),
                 ),
-                const SizedBox(width: 10),
+                IconButton(
+                  onPressed: onDelete,
+                  icon: const Icon(
+                    Icons.delete_outline,
+                    color: Color(0x99FFFFFF),
+                    size: 20,
+                  ),
+                ),
                 Icon(
                   selected ? Icons.check_circle : Icons.chevron_right,
                   color: selected
