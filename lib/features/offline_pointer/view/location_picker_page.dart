@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
@@ -59,6 +59,7 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   }
 
   Future<void> _initialise() async {
+    if (kIsWeb) return;
     _fmtcInitFuture ??= FMTCObjectBoxBackend().initialise();
     await _fmtcInitFuture;
 
@@ -105,7 +106,7 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
 
   @override
   Widget build(BuildContext context) {
-    final tileProvider = _tileProvider;
+    final tileProvider = _tileProvider ?? NetworkTileProvider();
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -172,14 +173,15 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                           onTap: _locateMe,
                         ),
                         const SizedBox(height: 12),
-                        _CircleButton(
-                          icon: Icons.download,
-                          onTap: _downloadViewport,
-                        ),
+                        if (!kIsWeb)
+                          _CircleButton(
+                            icon: Icons.download,
+                            onTap: _downloadViewport,
+                          ),
                       ],
                     ),
                   ),
-                  if (_downloading)
+                  if (!kIsWeb && _downloading)
                     const Positioned(
                       left: 16,
                       top: 16,

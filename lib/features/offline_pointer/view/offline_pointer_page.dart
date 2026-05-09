@@ -21,6 +21,8 @@ class _OfflinePointerPageState extends State<OfflinePointerPage> {
   static const _stillSpeedThreshold = 0.5;
   static const _movingInterval = Duration(milliseconds: 200);
   static const _stillInterval = Duration(seconds: 2);
+  static const _headingSmoothing = 0.18;
+  static const _angleSmoothing = 0.22;
 
   static const _prefsBoxName = 'app_prefs';
   static const _prefCurrentTargetId = 'currentTargetId';
@@ -131,14 +133,22 @@ class _OfflinePointerPageState extends State<OfflinePointerPage> {
     _sub = service.results.listen((result) {
       if (!mounted) return;
       setState(() {
-        _angle = result.pointerAngle;
+        _angle = _smoothDegrees(
+          from: _angle,
+          to: result.pointerAngle,
+          alpha: _angleSmoothing,
+        );
         _distance = result.distance;
       });
     });
     _headingSub = compassHeadingStream.listen((h) {
       if (!mounted) return;
       setState(() {
-        _heading = h;
+        _heading = _smoothDegrees(
+          from: _heading,
+          to: h,
+          alpha: _headingSmoothing,
+        );
       });
     });
 
@@ -159,15 +169,17 @@ class _OfflinePointerPageState extends State<OfflinePointerPage> {
     _headingSub = compassHeadingStream.listen((h) {
       if (!mounted) return;
       setState(() {
-        _heading = h;
-        _angle = _normalizeDegrees(-h);
+        _heading = _smoothDegrees(
+          from: _heading,
+          to: h,
+          alpha: _headingSmoothing,
+        );
       });
     });
 
     setState(() {
       _target = null;
       _distance = double.nan;
-      _angle = _normalizeDegrees(-_heading);
     });
   }
 
@@ -201,8 +213,8 @@ class _OfflinePointerPageState extends State<OfflinePointerPage> {
       final headingValue = ((_heading % 360) + 360) % 360;
       final headingInt = headingValue.round() % 360;
       return _PointerScaffold(
-        title: '指南针',
-        subtitle: '未选择目标',
+        title: '未选择目标',
+        subtitle: '固定地点',
         onMore: _openMoreMenu,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(18, 8, 18, 16),
@@ -239,16 +251,49 @@ class _OfflinePointerPageState extends State<OfflinePointerPage> {
                         enabled: isVisible,
                         child: AspectRatio(
                           aspectRatio: 1,
-                          child: CompassWidget(angle: _angle, isOnline: true),
+                          child: CompassWidget(
+                            angle: 0.0,
+                            dialRotation: headingValue,
+                            isOnline: true,
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
               ),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: const [
+                  Text(
+                    '--',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 44,
+                      fontWeight: FontWeight.w700,
+                      height: 1.0,
+                      letterSpacing: -0.8,
+                    ),
+                  ),
+                  SizedBox(width: 6),
+                  Padding(
+                    padding: EdgeInsets.only(bottom: 6),
+                    child: Text(
+                      '',
+                      style: TextStyle(
+                        color: Color(0xB3FFFFFF),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 6),
               const Text(
-                '指南针',
+                '指针 · 未选择目标',
                 style: TextStyle(
                   color: Color(0x99FFFFFF),
                   fontSize: 12,
@@ -307,7 +352,11 @@ class _OfflinePointerPageState extends State<OfflinePointerPage> {
                       enabled: isVisible,
                       child: AspectRatio(
                         aspectRatio: 1,
-                        child: CompassWidget(angle: _angle, isOnline: true),
+                        child: CompassWidget(
+                          angle: _angle,
+                          dialRotation: headingValue,
+                          isOnline: true,
+                        ),
                       ),
                     ),
                   ),
@@ -416,6 +465,21 @@ String _formatDistanceValue(double meters) {
 String _formatDistanceUnit(double meters) {
   if (!meters.isFinite) return '';
   return meters < 1000 ? 'm' : 'km';
+}
+
+double _smoothDegrees({
+  required double from,
+  required double to,
+  required double alpha,
+}) {
+  if (!from.isFinite) return _normalizeDegrees(to);
+  if (!to.isFinite) return _normalizeDegrees(from);
+  final a = _normalizeDegrees(from);
+  final b = _normalizeDegrees(to);
+  var delta = (b - a) % 360;
+  if (delta > 180) delta -= 360;
+  if (delta < -180) delta += 360;
+  return _normalizeDegrees(a + delta * alpha);
 }
 
 double _normalizeDegrees(double degrees) {

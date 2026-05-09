@@ -7,13 +7,19 @@ class CompassWidget extends StatefulWidget {
   const CompassWidget({
     super.key,
     required this.angle,
+    required this.dialRotation,
     required this.isOnline,
     this.theme,
+    this.showOverlay = true,
+    this.showTopIndicator = true,
   });
 
   final double angle;
+  final double dialRotation;
   final bool isOnline;
   final CompassTheme? theme;
+  final bool showOverlay;
+  final bool showTopIndicator;
 
   @override
   State<CompassWidget> createState() => _CompassWidgetState();
@@ -22,12 +28,15 @@ class CompassWidget extends StatefulWidget {
 class _CompassWidgetState extends State<CompassWidget> {
   double _frozenAngle = 0;
   double _latestAngle = 0;
+  double _frozenDialRotation = 0;
+  double _latestDialRotation = 0;
 
   @override
   void didUpdateWidget(covariant CompassWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.isOnline && !widget.isOnline) {
       _frozenAngle = _latestAngle;
+      _frozenDialRotation = _latestDialRotation;
     }
   }
 
@@ -46,21 +55,38 @@ class _CompassWidgetState extends State<CompassWidget> {
     final targetAngle = widget.isOnline ? widget.angle : _frozenAngle;
     final endAngle = _shortestEndAngle(from: _latestAngle, to: targetAngle);
 
+    final targetDialRotation = widget.isOnline
+        ? widget.dialRotation
+        : _frozenDialRotation;
+    final endDialRotation =
+        _shortestEndAngle(from: _latestDialRotation, to: targetDialRotation);
+
     final duration = widget.isOnline
         ? const Duration(milliseconds: 420)
         : const Duration(milliseconds: 220);
 
-    final dial = RepaintBoundary(
-      child: CustomPaint(
-        painter: CompassDialPainter(theme: theme),
-        child: const SizedBox.expand(),
-      ),
-    );
-
     return Stack(
       fit: StackFit.expand,
       children: [
-        dial,
+        TweenAnimationBuilder<double>(
+          tween: Tween<double>(end: endDialRotation),
+          duration: duration,
+          curve: Curves.easeOutCubic,
+          builder: (context, value, child) {
+            final normalized = _normalizeDegrees(value);
+            _latestDialRotation = normalized;
+            return Transform.rotate(
+              angle: -normalized * 3.141592653589793 / 180.0,
+              child: child,
+            );
+          },
+          child: RepaintBoundary(
+            child: CustomPaint(
+              painter: CompassDialPainter(theme: theme),
+              child: const SizedBox.expand(),
+            ),
+          ),
+        ),
         TweenAnimationBuilder<double>(
           tween: Tween<double>(end: endAngle),
           duration: duration,
@@ -88,6 +114,36 @@ class _CompassWidgetState extends State<CompassWidget> {
             );
           },
         ),
+        if (widget.showOverlay)
+          IgnorePointer(
+            child: DecoratedBox(
+              decoration: const BoxDecoration(
+                gradient: RadialGradient(
+                  center: Alignment(-0.15, -0.4),
+                  radius: 1.1,
+                  colors: [
+                    Color(0x22FFFFFF),
+                    Color(0x0AFFFFFF),
+                    Color(0x00111111),
+                  ],
+                  stops: [0.0, 0.55, 1.0],
+                ),
+              ),
+              child: const SizedBox.expand(),
+            ),
+          ),
+        if (widget.showTopIndicator)
+          const Align(
+            alignment: Alignment.topCenter,
+            child: Padding(
+              padding: EdgeInsets.only(top: 12),
+              child: SizedBox(
+                width: 18,
+                height: 26,
+                child: CustomPaint(painter: _TopIndicatorPainter()),
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -107,4 +163,38 @@ class _CompassWidgetState extends State<CompassWidget> {
     if (normalized < 0) return normalized + 360;
     return normalized;
   }
+}
+
+class _TopIndicatorPainter extends CustomPainter {
+  const _TopIndicatorPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final centerX = size.width / 2;
+    final linePaint = Paint()
+      ..color = const Color(0xCCFFFFFF)
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round
+      ..isAntiAlias = true;
+
+    canvas.drawLine(
+      Offset(centerX, 4),
+      Offset(centerX, size.height - 10),
+      linePaint,
+    );
+
+    final tri = Path()
+      ..moveTo(centerX, size.height)
+      ..lineTo(centerX - 5, size.height - 10)
+      ..lineTo(centerX + 5, size.height - 10)
+      ..close();
+    final triPaint = Paint()
+      ..color = const Color(0xFFE11D48)
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = true;
+    canvas.drawPath(tri, triPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
