@@ -6,7 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hive/hive.dart';
 import 'package:pointer_app/core/models/saved_location.dart';
-import 'package:pointer_app/core/services/location_calc_service.dart';
+import 'package:pointer_app/core/utils/haversine.dart';
 import 'package:pointer_app/features/offline_pointer/widgets/compass_widget.dart';
 import 'package:rxdart/rxdart.dart';
 
@@ -28,12 +28,12 @@ class _OfflinePointerPageState extends State<OfflinePointerPage> {
   static const _prefCurrentTargetId = 'currentTargetId';
 
   SavedLocation? _target;
-  LocationCalcService? _calcService;
-  StreamSubscription<PointerResult>? _sub;
+  StreamSubscription<Position>? _gpsSub;
   StreamSubscription<double>? _headingSub;
 
   double _angle = 0;
   double _distance = double.nan;
+  double _bearing = double.nan;
   double _heading = 0;
   LocationAccuracy _gpsAccuracy = LocationAccuracy.high;
 
@@ -44,19 +44,11 @@ class _OfflinePointerPageState extends State<OfflinePointerPage> {
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _loadTarget();
-  }
-
-  @override
   void dispose() {
-    _sub?.cancel();
-    _sub = null;
+    _gpsSub?.cancel();
+    _gpsSub = null;
     _headingSub?.cancel();
     _headingSub = null;
-    _calcService?.dispose();
-    _calcService = null;
     super.dispose();
   }
 
@@ -97,12 +89,10 @@ class _OfflinePointerPageState extends State<OfflinePointerPage> {
   }
 
   void _setTarget(SavedLocation target) {
-    _sub?.cancel();
-    _sub = null;
+    _gpsSub?.cancel();
+    _gpsSub = null;
     _headingSub?.cancel();
     _headingSub = null;
-    _calcService?.dispose();
-    _calcService = null;
 
     final gpsRaw = Geolocator.getPositionStream(
       locationSettings: LocationSettings(
@@ -117,53 +107,94 @@ class _OfflinePointerPageState extends State<OfflinePointerPage> {
       stillSpeedThreshold: _stillSpeedThreshold,
     );
 
-    final gpsStream = gpsThrottled.map<GpsPosition>(
-      (pos) => (latitude: pos.latitude, longitude: pos.longitude),
-    );
-
     final compassHeadingStream = _compassHeadingStream();
 
-    final service = LocationCalcService(
-      target: target,
-      gpsStream: gpsStream,
-      compassHeadingStream: compassHeadingStream,
-    );
-
-    _calcService = service;
-    _sub = service.results.listen((result) {
+    _gpsSub = gpsThrottled.listen((pos) {
       if (!mounted) return;
+      final distance = calcDistance(
+        pos.latitude,
+        pos.longitude,
+        target.latitude,
+        target.longitude,
+      );
+      final bearing = calcBearing(
+        pos.latitude,
+        pos.longitude,
+        target.latitude,
+        target.longitude,
+      );
       setState(() {
-        _angle = _smoothDegrees(
-          from: _angle,
-          to: result.pointerAngle,
-          alpha: _angleSmoothing,
-        );
-        _distance = result.distance;
+        _bearing = bearing;
+        _distance = distance;
       });
     });
+
     _headingSub = compassHeadingStream.listen((h) {
       if (!mounted) return;
       setState(() {
-        _heading = _smoothDegrees(
+        final newHeading = _smoothDegrees(
           from: _heading,
           to: h,
           alpha: _headingSmoothing,
         );
+        _heading = newHeading;
+
+        final bearing = _bearing;
+        if (bearing.isFinite) {
+          final desiredAngle = _normalizeDegrees(bearing - newHeading);
+          _angle = _smoothDegrees(
+            from: _angle,
+            to: desiredAngle,
+            alpha: _angleSmoothing,
+          );
+        }
       });
     });
 
     setState(() {
       _target = target;
+      _distance = double.nan;
+      _bearing = double.nan;
+      _angle = 0.0;
     });
+
+    unawaited(
+      Geolocator.getLastKnownPosition().then((pos) {
+        if (!mounted) return;
+        if (pos == null) return;
+        final activeTarget = _target;
+        if (activeTarget == null || activeTarget.id != target.id) return;
+        final distance = calcDistance(
+          pos.latitude,
+          pos.longitude,
+          target.latitude,
+          target.longitude,
+        );
+        final bearing = calcBearing(
+          pos.latitude,
+          pos.longitude,
+          target.latitude,
+          target.longitude,
+        );
+        setState(() {
+          _bearing = bearing;
+          _distance = distance;
+          final desiredAngle = _normalizeDegrees(bearing - _heading);
+          _angle = _smoothDegrees(
+            from: _angle,
+            to: desiredAngle,
+            alpha: _angleSmoothing,
+          );
+        });
+      }),
+    );
   }
 
   void _setCompassOnly() {
-    _sub?.cancel();
-    _sub = null;
+    _gpsSub?.cancel();
+    _gpsSub = null;
     _headingSub?.cancel();
     _headingSub = null;
-    _calcService?.dispose();
-    _calcService = null;
 
     final compassHeadingStream = _compassHeadingStream();
     _headingSub = compassHeadingStream.listen((h) {
@@ -180,6 +211,8 @@ class _OfflinePointerPageState extends State<OfflinePointerPage> {
     setState(() {
       _target = null;
       _distance = double.nan;
+      _bearing = double.nan;
+      _angle = 0.0;
     });
   }
 
