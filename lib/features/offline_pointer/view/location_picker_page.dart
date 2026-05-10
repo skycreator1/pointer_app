@@ -9,6 +9,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hive/hive.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:pointer_app/core/utils/haversine.dart';
 import 'package:pointer_app/core/models/saved_location.dart';
 
 class LocationPickerPage extends StatefulWidget {
@@ -22,6 +23,17 @@ class LocationPickerPage extends StatefulWidget {
 
 class _LocationPickerPageState extends State<LocationPickerPage> {
   static const _tileSubdomains = <String>['1', '2', '3', '4'];
+  static const _prefsBoxName = 'app_prefs';
+  static const _prefLastUserLat = 'lastUserLat';
+  static const _prefLastUserLon = 'lastUserLon';
+  static const _prefLastCenterLat = 'lastCenterLat';
+  static const _prefLastCenterLon = 'lastCenterLon';
+
+  static const _persistCenterDelay = Duration(milliseconds: 500);
+  static const _searchDelay = Duration(milliseconds: 350);
+
+  static const _chinaCenter = LatLng(35.86166, 104.195397);
+  static const _chinaZoom = 4.2;
 
   static final Uint8List _grayPngBytes = base64Decode(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/Upm3XQAAAAASUVORK5CYII=',
@@ -31,27 +43,31 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
 
-  Timer? _idleDebounce;
+  Timer? _persistCenterDebounce;
   Timer? _searchDebounce;
 
-  LatLng _selected = const LatLng(39.9, 116.4);
-  double _zoom = 14;
+  LatLng _mapCenter = const LatLng(39.9, 116.4);
+  double _mapZoom = 14;
   LatLng _pendingCenter = const LatLng(39.9, 116.4);
   double _pendingZoom = 14;
-  _AmapPoi? _lockedPoi;
+  LatLng? _userLocation;
   bool _nameEdited = false;
   bool _updatingName = false;
-  String? _address;
+
+  LatLng? _selectedPoint;
+  String? _selectedName;
+  String? _selectedAddress;
   bool _geocoding = false;
+  int _geocodeSeq = 0;
   bool _searching = false;
-  bool _snapping = false;
+  LatLng? _selectedSearchLocation;
   List<_AmapTip> _tips = const [];
 
   @override
   void initState() {
     super.initState();
-    _pendingCenter = _selected;
-    _pendingZoom = _zoom;
+    _pendingCenter = _mapCenter;
+    _pendingZoom = _mapZoom;
     _searchController.addListener(_onSearchTextChanged);
     _nameController.addListener(() {
       if (_updatingName) return;
@@ -59,14 +75,14 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _onMapIdle(_selected);
+      unawaited(_initDefaultCenter());
     });
   }
 
   @override
   void dispose() {
-    _idleDebounce?.cancel();
-    _idleDebounce = null;
+    _persistCenterDebounce?.cancel();
+    _persistCenterDebounce = null;
     _searchDebounce?.cancel();
     _searchDebounce = null;
 
@@ -79,7 +95,6 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   @override
   Widget build(BuildContext context) {
     final tileProvider = NetworkTileProvider();
-    final lockedPoi = _lockedPoi;
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -94,30 +109,21 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
               child: Stack(
                 children: [
                   Listener(
-                    onPointerUp: (_) => _onMapIdle(_pendingCenter),
-                    onPointerCancel: (_) => _onMapIdle(_pendingCenter),
                     child: FlutterMap(
                       mapController: _mapController,
                       options: MapOptions(
-                        initialCenter: _selected,
-                        initialZoom: _zoom,
+                        initialCenter: _mapCenter,
+                        initialZoom: _mapZoom,
                         interactionOptions: const InteractionOptions(
                           flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
                         ),
                         onTap: (tapPosition, point) {
-                          _pendingCenter = point;
-                          _mapController.move(
-                            point,
-                            _mapController.camera.zoom,
-                          );
-                          _onMapIdle(point, preferSnap: true);
+                          _selectPoint(point);
                         },
                         onPositionChanged: (camera, hasGesture) {
                           _pendingCenter = camera.center;
                           _pendingZoom = camera.zoom;
-                          if (!hasGesture && !_snapping) {
-                            _onMapIdle(camera.center);
-                          }
+                          _persistCenterDebounced(camera.center);
                         },
                       ),
                       children: [
@@ -128,23 +134,19 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                           userAgentPackageName: 'com.example.pointer_app',
                           errorImage: MemoryImage(_grayPngBytes),
                         ),
-                        MarkerLayer(
-                          markers: [
-                            Marker(
-                              point: lockedPoi?.location ?? _selected,
-                              width: 200,
-                              height: 90,
-                              alignment: Alignment.topCenter,
-                              child: _MapPin(title: lockedPoi?.name),
-                            ),
-                          ],
-                        ),
+                        if (_selectedPoint != null)
+                          MarkerLayer(
+                            markers: [
+                              Marker(
+                                point: _selectedPoint!,
+                                width: 220,
+                                height: 100,
+                                alignment: Alignment.topCenter,
+                                child: _MapPin(title: _selectedName),
+                              ),
+                            ],
+                          ),
                       ],
-                    ),
-                  ),
-                  const IgnorePointer(
-                    child: Center(
-                      child: Icon(Icons.add, color: Colors.white, size: 28),
                     ),
                   ),
                   Positioned(
@@ -162,7 +164,11 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                       left: 16,
                       right: 16,
                       top: 74,
-                      child: _TipsPanel(tips: _tips, onSelect: _selectTip),
+                      child: _TipsPanel(
+                        tips: _tips,
+                        selectedLocation: _selectedSearchLocation,
+                        onSelect: _selectTip,
+                      ),
                     ),
                   Positioned(
                     right: 16,
@@ -181,12 +187,14 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
               ),
             ),
             _BottomPanel(
-              address: _address,
+              name: _selectedName,
+              address: _selectedAddress,
               geocoding: _geocoding,
-              selected: _selected,
+              selected: _selectedPoint,
+              center: _mapCenter,
               nameController: _nameController,
-              nameHint: _lockedPoi?.name,
-              onSave: _save,
+              nameHint: _selectedName,
+              onSave: _selectedPoint == null ? null : _save,
             ),
           ],
         ),
@@ -194,10 +202,62 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     );
   }
 
+  Future<void> _initDefaultCenter() async {
+    LatLng? user;
+    try {
+      final enabled = await Geolocator.isLocationServiceEnabled();
+      if (enabled) {
+        var perm = await Geolocator.checkPermission();
+        if (perm == LocationPermission.denied) {
+          perm = await Geolocator.requestPermission();
+        }
+        if (perm == LocationPermission.always ||
+            perm == LocationPermission.whileInUse) {
+          final pos = await Geolocator.getCurrentPosition();
+          user = LatLng(pos.latitude, pos.longitude);
+          _userLocation = user;
+          final prefs = await Hive.openBox(_prefsBoxName);
+          await prefs.put(_prefLastUserLat, pos.latitude);
+          await prefs.put(_prefLastUserLon, pos.longitude);
+        }
+      }
+    } catch (_) {}
+
+    LatLng center;
+    double zoom;
+    if (user != null) {
+      center = user;
+      zoom = 16;
+    } else {
+      final prefs = await Hive.openBox(_prefsBoxName);
+      final lastUser = _readLatLng(
+        lat: prefs.get(_prefLastUserLat),
+        lon: prefs.get(_prefLastUserLon),
+      );
+      final lastCenter = _readLatLng(
+        lat: prefs.get(_prefLastCenterLat),
+        lon: prefs.get(_prefLastCenterLon),
+      );
+      center = lastUser ?? lastCenter ?? _chinaCenter;
+      zoom = (lastUser != null || lastCenter != null) ? 16 : _chinaZoom;
+      if (lastUser != null) _userLocation = lastUser;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _pendingCenter = center;
+      _pendingZoom = zoom;
+      _mapCenter = center;
+      _mapZoom = zoom;
+    });
+    _mapController.move(center, zoom);
+    _persistCenterDebounced(center);
+  }
+
   void _onSearchTextChanged() {
     final text = _searchController.text.trim();
     _searchDebounce?.cancel();
-    _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+    _searchDebounce = Timer(_searchDelay, () {
       if (!mounted) return;
       if (text.isEmpty) {
         setState(() => _tips = const []);
@@ -222,7 +282,27 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
         locationBias: _pendingCenter,
       );
       if (!mounted) return;
-      setState(() => _tips = tips);
+      final anchor = _userLocation ?? _pendingCenter;
+      final withDistance =
+          tips
+              .map(
+                (t) => t.copyWith(
+                  distanceMeters: calcDistance(
+                    anchor.latitude,
+                    anchor.longitude,
+                    t.location.latitude,
+                    t.location.longitude,
+                  ),
+                ),
+              )
+              .toList()
+            ..sort(
+              (a, b) => (a.distanceMeters ?? double.infinity).compareTo(
+                b.distanceMeters ?? double.infinity,
+              ),
+            );
+
+      setState(() => _tips = withDistance);
     } catch (_) {
       if (!mounted) return;
       setState(() => _tips = const []);
@@ -234,96 +314,99 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   void _selectTip(_AmapTip tip) {
     setState(() {
       _tips = const [];
-      _selected = tip.location;
-      _address = tip.address?.isEmpty ?? true ? tip.name : tip.address;
+      _selectedPoint = tip.location;
+      _selectedSearchLocation = tip.location;
+      _selectedName = tip.name;
+      _selectedAddress = tip.address?.isEmpty ?? true ? null : tip.address;
       if (_nameController.text.trim().isEmpty) {
         _setNameIfNotEdited(tip.name);
       }
     });
-    _lockedPoi = _AmapPoi(
-      name: tip.name,
-      location: tip.location,
-      distanceMeters: 0,
-      address: tip.address,
-    );
     _pendingCenter = tip.location;
     _mapController.move(tip.location, _mapController.camera.zoom);
-    _onMapIdle(tip.location, preferSnap: true);
+    unawaited(_reverseGeocode(tip.location, zoom: _pendingZoom));
   }
 
-  void _onMapIdle(LatLng center, {bool preferSnap = false}) {
-    _idleDebounce?.cancel();
-    _idleDebounce = Timer(const Duration(milliseconds: 350), () {
+  void _persistCenterDebounced(LatLng center) {
+    _persistCenterDebounce?.cancel();
+    _persistCenterDebounce = Timer(_persistCenterDelay, () {
       if (!mounted) return;
       setState(() {
-        _selected = center;
-        _zoom = _pendingZoom;
+        _mapCenter = center;
+        _mapZoom = _pendingZoom;
       });
-      unawaited(_reverseGeocodeAndMaybeSnap(center, preferSnap: preferSnap));
+      unawaited(_persistLastCenter(center));
     });
+  }
+
+  void _selectPoint(LatLng point) {
+    setState(() {
+      _tips = const [];
+      _selectedSearchLocation = null;
+      _selectedPoint = point;
+    });
+    unawaited(_reverseGeocode(point, zoom: _pendingZoom));
+    unawaited(_persistLastCenter(point));
   }
 
   Future<void> _locateMe() async {
     try {
       final pos = await Geolocator.getCurrentPosition();
       final center = LatLng(pos.latitude, pos.longitude);
+      _userLocation = center;
+      final prefs = await Hive.openBox(_prefsBoxName);
+      await prefs.put(_prefLastUserLat, pos.latitude);
+      await prefs.put(_prefLastUserLon, pos.longitude);
       _pendingCenter = center;
       _mapController.move(center, _mapController.camera.zoom);
-      setState(() => _selected = center);
-      _onMapIdle(center);
+      setState(() {
+        _mapCenter = center;
+        _mapZoom = _mapController.camera.zoom;
+      });
+      _persistCenterDebounced(center);
     } catch (_) {}
   }
 
-  Future<void> _reverseGeocodeAndMaybeSnap(
-    LatLng p, {
-    required bool preferSnap,
-  }) async {
-    if (_geocoding) return;
-    setState(() => _geocoding = true);
+  Future<void> _reverseGeocode(LatLng p, {required double zoom}) async {
+    final seq = ++_geocodeSeq;
+    if (!_geocoding) setState(() => _geocoding = true);
     try {
+      final radius = _radiusForZoom(zoom);
       final result = await _amapReverseGeocodeDetailed(
         key: widget.amapKey,
         latitude: p.latitude,
         longitude: p.longitude,
+        radiusMeters: radius,
       );
       if (!mounted) return;
+      if (seq != _geocodeSeq) return;
+
+      final formatted = result?.formattedAddress?.trim();
       final best = result?.bestPoi;
-      final snapThreshold = preferSnap ? 120.0 : 35.0;
-      if (best != null && best.distanceMeters <= snapThreshold) {
-        await _snapToPoi(best);
-        return;
-      }
+      final name = best?.name.trim().isNotEmpty ?? false
+          ? best!.name.trim()
+          : (formatted == null || formatted.isEmpty ? null : formatted);
 
       setState(() {
-        _lockedPoi = null;
-        _address = result?.formattedAddress;
+        _selectedName = name;
+        _selectedAddress = _addressForZoom(result, zoom: zoom);
       });
+      if (name != null) _setNameIfNotEdited(name);
     } catch (_) {
       if (!mounted) return;
-      setState(() => _address = null);
     } finally {
       if (mounted) {
-        setState(() => _geocoding = false);
+        if (seq == _geocodeSeq) setState(() => _geocoding = false);
       }
     }
   }
 
-  Future<void> _snapToPoi(_AmapPoi poi) async {
-    if (_snapping) return;
-    _snapping = true;
-    _pendingCenter = poi.location;
-    _mapController.move(poi.location, _mapController.camera.zoom);
-    await Future<void>.delayed(const Duration(milliseconds: 180));
-    if (!mounted) return;
-    setState(() {
-      _lockedPoi = poi;
-      _selected = poi.location;
-      _address = poi.address?.isEmpty ?? true
-          ? poi.name
-          : '${poi.name} · ${poi.address}';
-    });
-    _setNameIfNotEdited(poi.name);
-    _snapping = false;
+  Future<void> _persistLastCenter(LatLng center) async {
+    try {
+      final prefs = await Hive.openBox(_prefsBoxName);
+      await prefs.put(_prefLastCenterLat, center.latitude);
+      await prefs.put(_prefLastCenterLon, center.longitude);
+    } catch (_) {}
   }
 
   void _setNameIfNotEdited(String value) {
@@ -339,13 +422,15 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   }
 
   Future<void> _save() async {
+    final point = _selectedPoint;
+    if (point == null) return;
     final typedName = _nameController.text.trim();
-    final autoName = _lockedPoi?.name.trim() ?? '';
+    final autoName = _selectedName?.trim() ?? '';
     final name = typedName.isNotEmpty
         ? typedName
         : (autoName.isNotEmpty
               ? autoName
-              : '${_selected.latitude.toStringAsFixed(6)},${_selected.longitude.toStringAsFixed(6)}');
+              : '${point.latitude.toStringAsFixed(6)},${point.longitude.toStringAsFixed(6)}');
     if (name.isEmpty) return;
 
     final box = await Hive.openBox<SavedLocation>('saved_locations');
@@ -353,14 +438,60 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     final loc = SavedLocation(
       id: id,
       name: name,
-      latitude: _selected.latitude,
-      longitude: _selected.longitude,
+      latitude: point.latitude,
+      longitude: point.longitude,
       createdAt: DateTime.now(),
     );
     await box.put(id, loc);
     if (!mounted) return;
     context.pop(loc);
   }
+}
+
+int _radiusForZoom(double zoom) {
+  if (zoom < 6) return 10000;
+  if (zoom < 9) return 5000;
+  if (zoom < 11) return 2500;
+  if (zoom < 13) return 1200;
+  if (zoom < 15) return 600;
+  return 200;
+}
+
+String? _addressForZoom(_AmapRegeoResult? result, {required double zoom}) {
+  if (result == null) return null;
+  final formatted = result.formattedAddress?.trim();
+  if (formatted == null || formatted.isEmpty) return null;
+
+  final province = result.province?.trim() ?? '';
+  final city = result.city?.trim() ?? '';
+  final district = result.district?.trim() ?? '';
+  final township = result.township?.trim() ?? '';
+
+  if (zoom < 7) {
+    final a = <String>[province, city].where((s) => s.isNotEmpty).toList();
+    return a.isEmpty ? formatted : a.join(' ');
+  }
+  if (zoom < 11) {
+    final a = <String>[
+      city.isNotEmpty ? city : province,
+      district,
+      township,
+    ].where((s) => s.isNotEmpty).toList();
+    return a.isEmpty ? formatted : a.join(' ');
+  }
+  return formatted;
+}
+
+LatLng? _readLatLng({required Object? lat, required Object? lon}) {
+  final latNum = lat is num
+      ? lat.toDouble()
+      : double.tryParse(lat?.toString() ?? '');
+  final lonNum = lon is num
+      ? lon.toDouble()
+      : double.tryParse(lon?.toString() ?? '');
+  if (latNum == null || lonNum == null) return null;
+  if (!latNum.isFinite || !lonNum.isFinite) return null;
+  return LatLng(latNum, lonNum);
 }
 
 String _amapUrlTemplate(String key) {
@@ -385,22 +516,31 @@ final class _AmapRegeoResult {
   const _AmapRegeoResult({
     required this.formattedAddress,
     required this.bestPoi,
+    required this.province,
+    required this.city,
+    required this.district,
+    required this.township,
   });
 
   final String? formattedAddress;
   final _AmapPoi? bestPoi;
+  final String? province;
+  final String? city;
+  final String? district;
+  final String? township;
 }
 
 Future<_AmapRegeoResult?> _amapReverseGeocodeDetailed({
   required String key,
   required double latitude,
   required double longitude,
+  required int radiusMeters,
 }) async {
   final uri =
       Uri.https('restapi.amap.com', '/v3/geocode/regeo', <String, String>{
         'key': key,
         'location': '$longitude,$latitude',
-        'radius': '200',
+        'radius': radiusMeters.toString(),
         'extensions': 'all',
         'output': 'JSON',
       });
@@ -417,6 +557,22 @@ Future<_AmapRegeoResult?> _amapReverseGeocodeDetailed({
     if (regeocode is! Map) return null;
 
     final formatted = regeocode['formatted_address']?.toString();
+    final addressComp = regeocode['addressComponent'];
+    String? province;
+    String? city;
+    String? district;
+    String? township;
+    if (addressComp is Map) {
+      province = addressComp['province']?.toString();
+      final cityRaw = addressComp['city'];
+      if (cityRaw is List) {
+        city = cityRaw.isEmpty ? null : cityRaw.first?.toString();
+      } else {
+        city = cityRaw?.toString();
+      }
+      district = addressComp['district']?.toString();
+      township = addressComp['township']?.toString();
+    }
 
     _AmapPoi? bestPoi;
     final pois = regeocode['pois'];
@@ -454,6 +610,10 @@ Future<_AmapRegeoResult?> _amapReverseGeocodeDetailed({
     return _AmapRegeoResult(
       formattedAddress: formatted?.isEmpty ?? true ? null : formatted,
       bestPoi: bestPoi,
+      province: province?.isEmpty ?? true ? null : province,
+      city: city?.isEmpty ?? true ? null : city,
+      district: district?.isEmpty ?? true ? null : district,
+      township: township?.isEmpty ?? true ? null : township,
     );
   } finally {
     client.close(force: true);
@@ -461,11 +621,26 @@ Future<_AmapRegeoResult?> _amapReverseGeocodeDetailed({
 }
 
 final class _AmapTip {
-  const _AmapTip({required this.name, required this.location, this.address});
+  const _AmapTip({
+    required this.name,
+    required this.location,
+    this.address,
+    this.distanceMeters,
+  });
 
   final String name;
   final LatLng location;
   final String? address;
+  final double? distanceMeters;
+
+  _AmapTip copyWith({double? distanceMeters}) {
+    return _AmapTip(
+      name: name,
+      location: location,
+      address: address,
+      distanceMeters: distanceMeters ?? this.distanceMeters,
+    );
+  }
 }
 
 Future<List<_AmapTip>> _amapInputTips({
@@ -517,23 +692,31 @@ Future<List<_AmapTip>> _amapInputTips({
 
 class _BottomPanel extends StatelessWidget {
   const _BottomPanel({
+    required this.name,
     required this.address,
     required this.geocoding,
     required this.selected,
+    required this.center,
     required this.nameController,
     required this.nameHint,
     required this.onSave,
   });
 
+  final String? name;
   final String? address;
   final bool geocoding;
-  final LatLng selected;
+  final LatLng? selected;
+  final LatLng center;
   final TextEditingController nameController;
   final String? nameHint;
-  final VoidCallback onSave;
+  final VoidCallback? onSave;
 
   @override
   Widget build(BuildContext context) {
+    final nameText = name?.trim() ?? '';
+    final addressText = address?.trim() ?? '';
+    final coords = selected ?? center;
+    final enabled = selected != null;
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
       decoration: const BoxDecoration(
@@ -544,20 +727,41 @@ class _BottomPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            geocoding ? '正在获取地址…' : (address ?? '未获取到地址'),
-            style: const TextStyle(color: Colors.white, fontSize: 14),
+            nameText.isEmpty ? '未选择地点' : nameText,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              height: 1.15,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            geocoding
+                ? '正在获取地址…'
+                : (!enabled
+                      ? '点击地图或搜索结果选择地点'
+                      : (addressText.isEmpty ? '未获取到地址' : addressText)),
+            style: const TextStyle(
+              color: Color(0xB3FFFFFF),
+              fontSize: 13,
+              height: 1.2,
+            ),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 8),
           Text(
-            '${selected.latitude.toStringAsFixed(6)}, ${selected.longitude.toStringAsFixed(6)}',
+            '${coords.latitude.toStringAsFixed(6)}, ${coords.longitude.toStringAsFixed(6)}',
             style: const TextStyle(color: Color(0xB3FFFFFF), fontSize: 12),
           ),
           const SizedBox(height: 10),
           TextField(
             controller: nameController,
             style: const TextStyle(color: Colors.white),
+            enabled: enabled,
             decoration: InputDecoration(
               hintText: nameHint == null || nameHint!.trim().isEmpty
                   ? '地点名称（可选）'
@@ -655,9 +859,14 @@ class _SearchBar extends StatelessWidget {
 }
 
 class _TipsPanel extends StatelessWidget {
-  const _TipsPanel({required this.tips, required this.onSelect});
+  const _TipsPanel({
+    required this.tips,
+    required this.selectedLocation,
+    required this.onSelect,
+  });
 
   final List<_AmapTip> tips;
+  final LatLng? selectedLocation;
   final void Function(_AmapTip tip) onSelect;
 
   @override
@@ -678,26 +887,62 @@ class _TipsPanel extends StatelessWidget {
               const Divider(height: 1, color: Color(0x1FFFFFFF)),
           itemBuilder: (context, index) {
             final t = tips[index];
-            return ListTile(
-              dense: true,
-              title: Text(
-                t.name,
-                style: const TextStyle(color: Colors.white, fontSize: 14),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              subtitle: t.address == null || t.address!.isEmpty
-                  ? null
-                  : Text(
-                      t.address!,
-                      style: const TextStyle(
-                        color: Color(0x99FFFFFF),
-                        fontSize: 12,
+            final selected = _isSameLatLng(selectedLocation, t.location);
+            final distance = t.distanceMeters;
+            final distanceText = distance == null
+                ? null
+                : _formatDistance(distance);
+            return Material(
+              color: selected ? const Color(0x1AFFFFFF) : Colors.transparent,
+              child: ListTile(
+                dense: true,
+                leading: Icon(
+                  selected ? Icons.check_circle : Icons.place_outlined,
+                  color: selected ? Colors.white : const Color(0xB3FFFFFF),
+                  size: 18,
+                ),
+                title: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        t.name,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: selected
+                              ? FontWeight.w700
+                              : FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
-              onTap: () => onSelect(t),
+                    if (distanceText != null) ...[
+                      const SizedBox(width: 10),
+                      Text(
+                        distanceText,
+                        style: const TextStyle(
+                          color: Color(0x99FFFFFF),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                subtitle: t.address == null || t.address!.trim().isEmpty
+                    ? null
+                    : Text(
+                        t.address!.trim(),
+                        style: const TextStyle(
+                          color: Color(0x99FFFFFF),
+                          fontSize: 12,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                onTap: () => onSelect(t),
+              ),
             );
           },
         ),
@@ -762,9 +1007,22 @@ class _MapPin extends StatelessWidget {
               ),
             ),
           const SizedBox(height: 6),
-          const Icon(Icons.place, color: Color(0xFFE11D48), size: 28),
+          const Icon(Icons.place, color: Color(0xFFE11D48), size: 30),
         ],
       ),
     );
   }
+}
+
+bool _isSameLatLng(LatLng? a, LatLng b) {
+  if (a == null) return false;
+  return (a.latitude - b.latitude).abs() < 1e-6 &&
+      (a.longitude - b.longitude).abs() < 1e-6;
+}
+
+String _formatDistance(double meters) {
+  if (!meters.isFinite) return '';
+  if (meters < 1000) return '${meters.round()} m';
+  final km = meters / 1000.0;
+  return '${km.toStringAsFixed(km < 10 ? 1 : 0)} km';
 }
