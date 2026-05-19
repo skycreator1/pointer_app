@@ -1,3 +1,7 @@
+// Background isolate entrypoint and wiring.
+//
+// This file owns the background service lifecycle and connects:
+// GPS + compass streams -> pointer calculation -> optional peer sync.
 import 'dart:async';
 import 'dart:ui' as ui;
 

@@ -1,3 +1,7 @@
+// App-wide routing and top-level screens.
+//
+// This file defines the main navigation structure (tabs + routes) and also
+// hosts the settings/connect UI that wires into background services.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';

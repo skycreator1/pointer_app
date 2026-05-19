@@ -1,3 +1,6 @@
+// Domain exceptions surfaced to the UI.
+//
+// Each exception provides a localized user-facing message via AppLocalizations.
 import 'package:permission_handler/permission_handler.dart';
 import 'package:pointer_app/l10n/app_localizations.dart';
 

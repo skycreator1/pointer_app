@@ -1,3 +1,7 @@
+// Offline pointer screen (no network).
+//
+// Lets users pick a saved target location and shows a compass-like pointer
+// towards that target using GPS + device heading.
 import 'dart:async';
 
 import 'package:flutter/material.dart';

@@ -1,3 +1,7 @@
+// Map-based location picker (Amap tiles + Amap reverse geocoding/tips).
+//
+// Supports selecting a point by tapping the map or by choosing a POI from the
+// search results, then saving it as a SavedLocation.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';

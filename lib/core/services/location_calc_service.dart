@@ -1,3 +1,7 @@
+// Core pointer math pipeline.
+//
+// Combines target location + GPS position + compass heading into distance and
+// pointer angle output for UI and background service.
 import 'dart:async';
 
 import 'package:pointer_app/core/models/saved_location.dart';
@@ -21,33 +25,33 @@ class LocationCalcService {
   }) : _targetSubject = BehaviorSubject<SavedLocation>.seeded(target) {
     final combined =
         Rx.combineLatest3<SavedLocation, GpsPosition, double, PointerResult>(
-      _targetSubject.stream,
-      gpsStream,
-      compassHeadingStream,
-      (target, gps, heading) {
-        final distance = calcDistance(
-          gps.latitude,
-          gps.longitude,
-          target.latitude,
-          target.longitude,
-        );
+          _targetSubject.stream,
+          gpsStream,
+          compassHeadingStream,
+          (target, gps, heading) {
+            final distance = calcDistance(
+              gps.latitude,
+              gps.longitude,
+              target.latitude,
+              target.longitude,
+            );
 
-        final bearing = calcBearing(
-          gps.latitude,
-          gps.longitude,
-          target.latitude,
-          target.longitude,
-        );
+            final bearing = calcBearing(
+              gps.latitude,
+              gps.longitude,
+              target.latitude,
+              target.longitude,
+            );
 
-        final headingSafe = heading.isFinite ? heading : 0.0;
-        final pointerAngle = _normalizeDegrees(bearing - headingSafe);
+            final headingSafe = heading.isFinite ? heading : 0.0;
+            final pointerAngle = _normalizeDegrees(bearing - headingSafe);
 
-        return PointerResult(
-          distance: distance,
-          pointerAngle: pointerAngle,
+            return PointerResult(
+              distance: distance,
+              pointerAngle: pointerAngle,
+            );
+          },
         );
-      },
-    );
 
     _resultsSubscription = combined.listen(
       (result) {

@@ -1,3 +1,6 @@
+// Application entrypoint.
+//
+// Initializes local persistence (Hive) and starts the router-based UI.
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:pointer_app/app_router.dart';

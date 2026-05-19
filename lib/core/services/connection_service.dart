@@ -1,3 +1,6 @@
+// WebSocket-based peer connection service.
+//
+// Handles pairing handshake, reconnect/heartbeat, and peer location messages.
 import 'dart:async';
 import 'dart:convert';
 
