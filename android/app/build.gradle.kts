@@ -14,6 +14,8 @@ if (keystorePropertiesFile.exists()) {
 }
 
 val isCi = System.getenv("CI")?.equals("true", ignoreCase = true) == true
+val wantsReleaseBuild =
+    gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }
 
 android {
     namespace = "com.example.pointer_app"
@@ -46,7 +48,7 @@ android {
             val storeFilePath = keystoreProperties.getProperty("storeFile")
 
             if (storeFilePath.isNullOrBlank()) {
-                if (isCi) {
+                if (isCi && wantsReleaseBuild) {
                     throw GradleException(
                         "Missing Android release signing config. Ensure android/key.properties exists and points to a keystore.",
                     )
