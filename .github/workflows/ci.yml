@@ -33,6 +33,37 @@ jobs:
           path: coverage/lcov.info
           retention-days: 14
 
+  build-android-debug:
+    needs: checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.41.4
+          cache: true
+      - run: flutter pub get
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set +e
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          sdkmanager "ndk;28.2.13676358" "cmake;3.22.1"
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          set -e
+      - run: flutter build apk --debug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk-${{ github.sha }}
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 14
+
   build-android:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: checks
@@ -54,7 +85,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
           sdkmanager "ndk;28.2.13676358" "cmake;3.22.1"
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
           set -e
